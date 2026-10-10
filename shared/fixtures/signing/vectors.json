@@ -1,0 +1,34 @@
+[
+  {
+    "secret": "ssssssssssssssssssssssssssssssssssssssss",
+    "t": 1791700000,
+    "method": "POST",
+    "path": "/api/agent/events",
+    "body": "{\"type\":\"heartbeat\",\"eventId\":\"evt_0001abcd\",\"sessionId\":\"s1\"}",
+    "header": "t=1791700000,v1=cf83b82dab0cf18f79942f1772c4852e771f196a18b279ee7eb388865ec73eb2"
+  },
+  {
+    "secret": "ssssssssssssssssssssssssssssssssssssssss",
+    "t": 1791700000,
+    "method": "GET",
+    "path": "/sessions/A",
+    "body": "",
+    "header": "t=1791700000,v1=df8e61561a88d05386440b878c06a6783018a053e01b975bfd747ccf8b69ee69"
+  },
+  {
+    "secret": "ssssssssssssssssssssssssssssssssssssssss",
+    "t": 1791700000,
+    "method": "DELETE",
+    "path": "/sessions/A?reason=end",
+    "body": "",
+    "header": "t=1791700000,v1=41fb80256c86fbf188e34c14fca0cb09e2e9190a2d7d5c86e9b5514020a3b5a5"
+  },
+  {
+    "secret": "another-secret-0123456789-0123456789",
+    "t": 1791700123,
+    "method": "POST",
+    "path": "/sessions/x/input?sender=pat",
+    "body": "{\"type\":\"pc.caption\",\"ml\":\"ഒന്ന്\"}",
+    "header": "t=1791700123,v1=b21a9bdd5012882a4ab071cb88168fdef18edaffbb6017beeb6ab11ff2fdf116"
+  }
+]

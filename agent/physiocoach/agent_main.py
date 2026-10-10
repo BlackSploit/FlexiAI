@@ -160,7 +160,7 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
     call = await agent.create_call(cfg.callType, cfg.callId)        # get_or_create: an existing call is fine
     tasks = [asyncio.create_task(outbox.run()), asyncio.create_task(speaker.run())]
     if redis:
-        tasks += [asyncio.create_task(heartbeat(redis, cfg.sessionId)),
+        tasks += [asyncio.create_task(heartbeat(redis, cfg.sessionId, lambda: len(flow.completed_sets))),
                   asyncio.create_task(redis_inputs(redis, cfg.sessionId, router.handle))]
     code = 1
     try:

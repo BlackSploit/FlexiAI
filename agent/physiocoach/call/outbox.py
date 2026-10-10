@@ -121,7 +121,8 @@ class Outbox:
                         await self.store.size())
             return False
 
-    async def _deliver(self, body: bytes) -> None:
+    async def _deliver(self, body: bytes | str) -> None:
+        body = body if isinstance(body, bytes) else body.encode()   # Redis may hand back str (decode_responses)
         backoff, unauthorized = 1.0, 0
         kind = json.loads(body).get("type")
         while True:
