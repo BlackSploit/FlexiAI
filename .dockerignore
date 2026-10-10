@@ -12,6 +12,7 @@ agent/cache
 agent/models/*.pt
 agent/models/*.task
 agent/models/*.onnx
+agent/assets/voice/dev-*
 agent/replay/recordings
 **/__pycache__
 **/.pytest_cache

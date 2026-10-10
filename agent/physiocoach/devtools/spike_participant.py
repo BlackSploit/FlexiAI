@@ -22,11 +22,39 @@ import cv2
 import numpy as np
 from getstream import AsyncStream
 from getstream.video import rtc
+from getstream.video.rtc import AudioStreamTrack
+from getstream.video.rtc.track_util import AudioFormat, PcmData
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType as StreamTrackType
 from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
 from vision_agents.core.utils.video_track import QueuedVideoTrack, VideoFileTrack
 
+from ..voice.audio import read_wav
+
 log = logging.getLogger("spike.participant")
+
+
+class AudioOnsets:
+    """Logs when the agent's audio starts and stops (as heard by this participant)."""
+
+    def __init__(self, threshold: float = 0.01, hangover_s: float = 0.15):
+        self.threshold, self.hangover_s = threshold, hangover_s
+        self.loud, self.last_loud = False, 0.0
+
+    def feed(self, pcm) -> str | None:
+        now = time.time()
+        samples = np.asarray(pcm.samples, dtype=np.float64) / 32768.0
+        level = float(np.sqrt(np.mean(samples ** 2))) if samples.size else 0.0
+        if level > self.threshold:
+            self.last_loud = now
+            if not self.loud:
+                self.loud = True
+                log.info("AGENT AUDIO ONSET t=%.3f (rms %.3f)", now, level)
+                return "onset"
+        elif self.loud and now - self.last_loud > self.hangover_s:
+            self.loud = False
+            log.info("AGENT AUDIO STOP t=%.3f", self.last_loud)
+            return "stop"
+        return None
 
 
 def envelope(type_: str, **fields) -> dict:
@@ -81,7 +109,7 @@ async def run(args) -> None:
     client = AsyncStream()
     call = client.video.call(args.call_type, args.call_id)
     user_id = args.user_id or f"dev-{args.role}"
-    types = [StreamTrackType.TRACK_TYPE_VIDEO] if args.role == "physio" else []
+    types = [StreamTrackType.TRACK_TYPE_VIDEO, StreamTrackType.TRACK_TYPE_AUDIO] if args.role == "physio" else []
     conn = await rtc.join(call, user_id, create=False,
                           subscription_config=SubscriptionConfig(default=TrackSubscriptionConfig(track_types=types)))
     stop = asyncio.Event()
@@ -95,11 +123,30 @@ async def run(args) -> None:
             log.info("custom %s from %s (%d ms) %s", data.get("type"), sender, delay,
                      {k: v for k, v in data.items() if k not in ("type", "v", "eventId", "ts")})
 
+    onsets = AudioOnsets()
+    first_onset = asyncio.Event()
+    mic = AudioStreamTrack(sample_rate=48000, channels=1) if args.role == "physio" else None
+
+    @conn.on("audio")
+    def _audio(pcm):
+        if getattr(getattr(pcm, "participant", None), "user_id", None) != args.agent_user_id:
+            return
+        if onsets.feed(pcm) == "onset":
+            first_onset.set()
+
     async with conn:
         log.info("%s joined %s:%s", user_id, args.call_type, args.call_id)
         if args.role == "physio":
-            await conn.add_tracks(video=await static_camera())
+            await conn.add_tracks(video=await static_camera(), audio=mic)
             watcher = asyncio.create_task(watch_agent_video(conn, args.agent_user_id, Path(args.out_dir), stop))
+            if args.speak_wav:
+                await first_onset.wait()
+                await asyncio.sleep(args.speak_after)          # talk over the coach mid-utterance
+                samples, rate = read_wav(Path(args.speak_wav).read_bytes())
+                speech = PcmData.from_bytes(samples.tobytes(), sample_rate=rate, format=AudioFormat.S16,
+                                            channels=1).resample(48000, 1)
+                log.info("PHYSIO SPEECH START t=%.3f (%.1f s)", time.time(), speech.duration_ms / 1000)
+                await mic.write(speech)
         else:
             await conn.add_tracks(video=VideoFileTrack(args.clip, fps=args.fps))
             watcher = None
@@ -128,6 +175,8 @@ def main() -> None:
     p.add_argument("--consent-repeats", type=int, default=2)
     p.add_argument("--seconds", type=float, default=60.0)
     p.add_argument("--out-dir", default="cache/spike-tiles")
+    p.add_argument("--speak-wav", help="physio: speak this WAV over the coach (barge-in test)")
+    p.add_argument("--speak-after", type=float, default=1.5, help="seconds after the coach first speaks")
     args = p.parse_args()
     if args.role == "patient" and not args.clip:
         p.error("patient needs --clip")

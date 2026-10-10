@@ -7,6 +7,7 @@ Records the Spike A measurements (custom-event delays, frame stats) to a JSON re
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -21,7 +22,9 @@ from ..core.contracts import ConsentEvent, client_event_adapter
 from ..core.rep_engine import Rep, RepEngine
 from ..pose.base import Keypoints
 from ..pose.draw import OverlayState
+from ..core.coach_rules import live_cue_ids
 from .processor import PoseProcessor
+from .speaker import Speaker
 
 log = logging.getLogger(__name__)
 
@@ -31,8 +34,9 @@ def envelope(type_: str, **fields) -> dict:
 
 
 class SpikeFlow:
-    def __init__(self, agent, pose: PoseProcessor, cfg: SessionConfig):
-        self.agent, self.pose, self.cfg = agent, pose, cfg
+    def __init__(self, agent, pose: PoseProcessor, cfg: SessionConfig, speaker: Optional[Speaker] = None):
+        self.agent, self.pose, self.cfg, self.speaker = agent, pose, cfg, speaker
+        self.bargein = None                      # set by agent_main (PhysioBargeIn)
         ex, rx = cfg.exercise, cfg.prescription
         self.tracker = AngleTracker(tuple(ex.joints), ex.mode, rx.side)
         self.engine = RepEngine(ex.rest, ex.start, ex.minPeak, rx.minSecondsPerRep)
@@ -85,6 +89,8 @@ class SpikeFlow:
             self.first_input_at = now
         if isinstance(ev, ConsentEvent) and sender == self.cfg.patient.id and not self.pose.enabled:
             self.pose.enabled = True
+            if self.speaker:
+                self.speaker.say_ids(["consent.thanks"], "prompt")
             self.state = OverlayState(**{**self.state.__dict__, "banner": "Tracking"})
             await self.send("pc.state", phase="positioning", setIndex=1, setsPlanned=self.cfg.prescription.sets)
 
@@ -98,6 +104,8 @@ class SpikeFlow:
                                      "side": s.side, "rep_peak": rep_peak, "reps": len(self.engine.reps)})
         if isinstance(ev, Rep):
             rx = self.cfg.prescription
+            if self.speaker:
+                self.speaker.say_ids(live_cue_ids(ev, rx.targetAngle, self.cfg.exercise.mode), "count")
             self._fire(self.send("pc.rep", setIndex=1, n=ev.n, peak=round(ev.peak, 1), seconds=round(ev.seconds, 2),
                                  tooFast=ev.too_fast, target=rx.targetAngle, repsPlanned=rx.reps))
 
@@ -111,7 +119,22 @@ class SpikeFlow:
             "inputs": self.inputs,
             "reps": len(self.engine.reps),
             "frame_stats": p.stats.samples,
+            "said_at": self.speaker.stats.said_at if self.speaker else [],
+            "bargein": self.bargein.events if self.bargein else [],
         }
+
+    async def voice_script(self) -> None:
+        """Greeting + consent prompt; with SPIKE_VOICE_TEST=1 also three counts (latency spike)."""
+        if not self.speaker:
+            return
+        await asyncio.sleep(1.0)
+        self.speaker.say_ids(["intro.greet", "intro.watch"], "prompt")
+        self.speaker.say_ids(["consent.ask"], "prompt")
+        if os.getenv("SPIKE_VOICE_TEST") == "1":
+            await self.speaker.wait_idle()
+            for n in (1, 2, 3):
+                await asyncio.sleep(1.5)
+                self.speaker.say_ids([f"count.{n:02d}"], "count")
 
     def write_report(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

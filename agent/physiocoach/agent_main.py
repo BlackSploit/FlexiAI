@@ -2,8 +2,9 @@
 
     python -m physiocoach.agent_main --session-id <sid>        # config in env PC_SESSION_JSON
 
-Milestone 2: joins the existing call, publishes the annotated tile and runs the spike flow.
-The full call-flow state machine replaces SpikeFlow in Milestone 4.
+Milestones 2-3: joins the existing call, publishes the annotated tile, speaks Malayalam through the
+Speaker (CachedMalayalamTTS) with physio barge-in, and runs the spike flow. The full call-flow
+state machine replaces SpikeFlow in Milestone 4.
 """
 
 import argparse
@@ -14,16 +15,19 @@ import signal
 from pathlib import Path
 
 from vision_agents.core import Agent, User
-from vision_agents.core.edge.events import CallEndedEvent
+from vision_agents.core.edge.events import AudioReceivedEvent, CallEndedEvent
+from vision_agents.core.vad.silero import SileroVADSessionPool
 
+from .call.bargein import BargeInDetector, PhysioBargeIn
 from .call.edge import NoChatEdge
 from .call.inputs import hook_custom_events
 from .call.no_llm import NoLLM
 from .call.processor import PoseProcessor
-from .call.silent_tts import SilentTTS
+from .call.speaker import Speaker
 from .call.spike_flow import SpikeFlow
 from .core.config import SessionConfig, load_session_config
-from .pose.base import backend_factory_from_env
+from .pose.base import backend_factory_from_env, models_dir
+from .voice.build import build_tts
 
 log = logging.getLogger("physiocoach.agent")
 
@@ -32,26 +36,44 @@ async def amain(cfg: SessionConfig, max_seconds: float | None = None) -> int:
     pose = PoseProcessor(
         backend_factory_from_env(),
         fps=int(os.getenv("POSE_FPS", "12")),
-        out_w=int(os.getenv("POSE_OUT_W", "960")),
-        out_h=int(os.getenv("POSE_OUT_H", "540")),
+        out_w=int(os.getenv("POSE_OUT_W", "640")),
+        out_h=int(os.getenv("POSE_OUT_H", "360")),
     )
     pose.patient_user_id = cfg.patient.id
+    tts, duration_of = build_tts()
     agent = Agent(
         edge=NoChatEdge(),
         llm=NoLLM(),                                   # llm= is mandatory; never used for generation
         agent_user=User(id=cfg.agentUserId, name="PhysioCoach"),
         instructions="Deterministic exercise coach. Never used for generation.",
-        tts=SilentTTS(),                               # CachedMalayalamTTS in Milestone 3
+        tts=tts,
         processors=[pose],
     )
+    log.info("patient language %s; audio is Malayalam for every patient (DEV-16)", cfg.patient.lang)
+
+    async def interrupt_audio() -> None:
+        # Clears the flow's TTS input/output queues AND flushes the audio track (private, pinned 0.6.9;
+        # tts.interrupt() + audio_track.flush() alone would leave queued speech to play).
+        await agent._flow.interrupt()
+
+    speaker = Speaker(agent, duration_of, interrupt_audio)
+    vad_pool = await SileroVADSessionPool.load(str(models_dir()))
+    barge = PhysioBargeIn(cfg.physioId, vad_pool.session(), speaker.physio_started, speaker.physio_stopped,
+                          BargeInDetector(min_rms=float(os.getenv("BARGEIN_MIN_RMS", "0.02"))))
+
     await pose.warmup()
     call = await agent.create_call(cfg.callType, cfg.callId)        # get_or_create: an existing call is fine
-    flow = SpikeFlow(agent, pose, cfg)
+    flow = SpikeFlow(agent, pose, cfg, speaker)
+    flow.bargein = barge
 
     @agent.events.subscribe
     async def _ended(e: CallEndedEvent):
         log.info("call ended")
         flow.ended.set()
+
+    @agent.events.subscribe
+    async def _audio(e: AudioReceivedEvent):
+        await barge.feed(e.participant.user_id if e.participant else None, e.pcm_data)
 
     loop = asyncio.get_running_loop()
     try:
@@ -63,13 +85,15 @@ async def amain(cfg: SessionConfig, max_seconds: float | None = None) -> int:
     async with agent.join(call, participant_wait_timeout=0):
         log.info("joined %s:%s as %s", cfg.callType, cfg.callId, cfg.agentUserId)
         hook_custom_events(agent, flow.on_event)
-        ready = asyncio.create_task(flow.ready_loop())
+        tasks = [asyncio.create_task(flow.ready_loop()), asyncio.create_task(speaker.run()),
+                 asyncio.create_task(flow.voice_script())]
         try:
             await asyncio.wait_for(flow.ended.wait(), timeout=max_seconds)
         except asyncio.TimeoutError:
             log.info("spike duration reached")
         finally:
-            ready.cancel()
+            for t in tasks:
+                t.cancel()
             flow.write_report(Path(os.getenv("PC_REPORT_DIR", "cache")) / f"spike-{cfg.sessionId}.json")
     return 0
 

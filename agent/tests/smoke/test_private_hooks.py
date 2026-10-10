@@ -40,6 +40,21 @@ def test_connection_manager_and_tracks_keep_the_methods_we_call():
     assert callable(getattr(SubscriberPeerConnection, "add_track_subscriber"))
 
 
+def test_agent_flow_interrupt_still_clears_tts_and_audio_queues():
+    """Barge-in and safety call agent._flow.interrupt() (private): it must keep clearing every stage."""
+    import inspect
+
+    from vision_agents.core.agents.agents import Agent
+    from vision_agents.core.agents.inference.transcribing_flow import TranscribingInferenceFlow
+
+    assert "self._flow" in inspect.getsource(Agent)
+    src = inspect.getsource(TranscribingInferenceFlow.interrupt)
+    for needle in ("_tts_input.clear()", "_tts_output.clear()", "_audio_output.flush()"):
+        assert needle in src, needle
+    say = inspect.getsource(TranscribingInferenceFlow.say)
+    assert "await self.interrupt()" in say          # say(..., interrupt=True) for the safety phrase
+
+
 async def test_no_chat_edge_returns_an_in_memory_conversation():
     conv = await NoChatEdge().create_conversation(None, None, "instr")
     assert type(conv).__name__ == "InMemoryConversation"

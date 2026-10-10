@@ -56,3 +56,6 @@ next-env.d.ts
 
 # dev artefacts
 dev-session.json
+
+# rendered voices: commit only after the user decides (Q3); dev voices never
+agent/assets/voice/dev-*/

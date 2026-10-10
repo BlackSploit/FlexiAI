@@ -32,10 +32,12 @@ RUN mkdir -p /opt/models \
       https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task \
  && curl -fsSL -o /opt/models/pose_landmarker_lite.task \
       https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task \
+ && curl -fsSL -o /opt/models/silero_vad.onnx \
+      https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx \
  && cd /opt/models \
  && /opt/venv/bin/python -c "from ultralytics import YOLO; YOLO('yolo26n-pose.pt')" \
  && rm -rf /root/.config/Ultralytics \
- && sha256sum *.task *.pt > SHA256SUMS.actual \
+ && sha256sum *.task *.pt *.onnx > SHA256SUMS.actual \
  && if [ -s SHA256SUMS ]; then sha256sum -c SHA256SUMS; fi
 
 # 3) project source, then install the project itself
