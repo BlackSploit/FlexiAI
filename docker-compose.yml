@@ -1,0 +1,41 @@
+# Dev stack: redis + agent-worker (+ agent-worker-test for the mandatory replay tests).
+# Stream credentials come from the root .env (compose interpolation), under the names getstream 4.x reads.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+
+  agent-worker:
+    build: { context: ., dockerfile: agent/Dockerfile }
+    image: physiocoach-agent:dev
+    env_file:
+      - path: agent/.env
+        required: false
+    environment:
+      STREAM_API_KEY: ${NEXT_PUBLIC_STREAM_VIDEO_API_KEY:-}
+      STREAM_API_SECRET: ${STREAM_VIDEO_SECRET_KEY:-}
+      REDIS_URL: redis://redis:6379/0
+      WEB_INTERNAL_URL: http://host.docker.internal:3000
+      WORKER_HOST: agent-worker-dev
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - ./agent:/app/agent          # live source in dev; the venv and models live outside it
+      - ./shared:/app/shared
+    depends_on: [redis]
+
+  agent-worker-test:
+    build: { context: ., dockerfile: agent/Dockerfile, args: { INSTALL_DEV: "1" } }
+    image: physiocoach-agent:test
+    environment:
+      STREAM_API_KEY: ${NEXT_PUBLIC_STREAM_VIDEO_API_KEY:-}
+      STREAM_API_SECRET: ${STREAM_VIDEO_SECRET_KEY:-}
+    volumes:
+      - ./agent:/app/agent
+      - ./shared:/app/shared
+    command: ["pytest", "-q"]
+    profiles: [test]
+
+volumes:
+  redis-data:

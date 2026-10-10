@@ -36,7 +36,17 @@ def test_demo_rehearsal_movement_gives_the_demo_note():
     assert all(c["ids"] == [f"count.{i + 1:02d}", "cue.bend_more"] for i, c in enumerate(run.cues))
 
 
-def test_cli_requires_synthetic_until_video_exists(capsys):
+def test_cli_needs_exactly_one_input_and_no_audio_yet():
     import pytest
-    with pytest.raises(SystemExit):
-        cli.main(["clip.mp4"])
+    for argv in ([], ["clip.mp4", "--synthetic", "clean"], ["--synthetic", "clean", "--play-audio"]):
+        with pytest.raises(SystemExit):
+            cli.main(argv)
+
+
+def test_golden_writer_records_cues_and_note(tmp_path):
+    frames = [(f.t, synthetic.keypoints(f, KNEE.joints, KNEE.mode)) for f in synthetic.clean()]
+    run = cli.run_set(frames, KNEE, 60, 10, 2.0)
+    path = tmp_path / "g.jsonl"
+    cli.write_golden(run, str(path))
+    lines = [json.loads(x) for x in path.read_text().splitlines()]
+    assert len(lines) == 11 and lines[-1] == {"reps": 10, "noteIds": run.note_ids}

@@ -53,3 +53,6 @@ agent/models/*.task
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# dev artefacts
+dev-session.json

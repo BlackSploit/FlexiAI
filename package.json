@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "dev:webhook": "node scripts/ngrok.mjs"
+    "dev:webhook": "node scripts/ngrok.mjs",
+    "dev:create-call": "tsx --conditions=react-server scripts/dev-create-call.ts"
   },
   "dependencies": {
     "@dicebear/collection": "^9.2.2",

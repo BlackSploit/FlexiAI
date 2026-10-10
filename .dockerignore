@@ -1,0 +1,19 @@
+# Build context is the repo root (agent/Dockerfile needs shared/). Keep it small and secret-free.
+.git
+node_modules
+.next
+out
+coverage
+.env*
+!.env.example
+agent/.env*
+agent/.venv
+agent/cache
+agent/models/*.pt
+agent/models/*.task
+agent/models/*.onnx
+agent/replay/recordings
+**/__pycache__
+**/.pytest_cache
+**/.coverage
+*.log
