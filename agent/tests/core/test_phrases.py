@@ -10,7 +10,7 @@ FLOW_IDS = [
     "intro.greet", "intro.watch", "consent.ask", "consent.thanks", "pos.side", "pos.front", "pos.leg_in_frame",
     "pos.arm_in_frame", "pos.step_back", "pos.light", "pos.cant_see", "pos.ok", "cd.ready", "cd.start",
     "cue.bend_more", "cue.raise_more", "cue.slow", "set.done", "set.rest", "note.no_reps", "note.too_fast",
-    "pain.ask", "pain.thanks", "safety.stop", "physio.joined", "bye", "zero",
+    "pain.ask", "pain.thanks", "safety.stop", "physio.joined", "bye", "zero", "resume",
 ] + [f"count.{n:02d}" for n in range(1, 31)]
 
 

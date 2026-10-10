@@ -38,6 +38,7 @@
     { "id": "intro.watch", "category": "intro", "ml": "ആവർത്തനങ്ങൾ എണ്ണാൻ ഞാൻ നിങ്ങളുടെ വീഡിയോ ശ്രദ്ധിക്കും. വീഡിയോ റെക്കോർഡ് ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ഇല്ല.", "en": "I will watch your video to count the repetitions. The video is not recorded or stored.", "review": "pending" },
     { "id": "consent.ask", "category": "consent", "ml": "തുടരാൻ സമ്മതമാണെങ്കിൽ, സ്ക്രീനിലെ \"ഞാൻ സമ്മതിക്കുന്നു\" ബട്ടൺ അമർത്തുക.", "en": "If you agree to continue, press the \"I agree\" button on the screen.", "review": "pending" },
     { "id": "consent.thanks", "category": "consent", "ml": "നന്ദി. നമുക്ക് തുടങ്ങാം.", "en": "Thank you. Let's begin.", "review": "pending" },
+    { "id": "resume", "category": "misc", "ml": "നമുക്ക് വീണ്ടും തുടരാം.", "en": "Let's continue.", "review": "pending", "notes": "spoken when the coach restarts mid-session (consent already given)" },
 
     { "id": "pos.side", "category": "pos", "ml": "ദയവായി ക്യാമറയിലേക്ക് വശം തിരിഞ്ഞ് നിൽക്കൂ.", "en": "Please stand side-on to the camera.", "review": "pending" },
     { "id": "pos.front", "category": "pos", "ml": "ദയവായി ക്യാമറയ്ക്ക് അഭിമുഖമായി നിൽക്കൂ.", "en": "Please stand facing the camera.", "review": "pending" },

@@ -5,7 +5,6 @@ Hershey fonts have no Malayalam glyphs (Malayalam lives in the web captions).
 """
 
 import math
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
@@ -14,6 +13,7 @@ import numpy as np
 
 from ..core.angles import CONF_MIN
 from .base import JOINTS, SKELETON_EDGES, Keypoints
+from .overlay import OverlayState  # noqa: F401  (re-exported)
 
 GREEN = (34, 197, 94)          # RGB; matches the app's primary green
 WHITE = (255, 255, 255)
@@ -21,26 +21,6 @@ AMBER = (245, 158, 11)
 RED = (220, 38, 38)
 DARK = (17, 24, 39)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-
-
-@dataclass(frozen=True)
-class OverlayState:
-    banner: str = ""                              # phase banner, English
-    reps: int = 0
-    reps_planned: int = 0
-    set_index: int = 0
-    sets_planned: int = 1
-    target: Optional[float] = None                # mode value
-    value: Optional[float] = None                 # current smoothed mode value
-    rep_peak: Optional[float] = None              # peak of the rep in progress / last rep
-    raw_angle: Optional[float] = None             # joint angle at the vertex
-    side: Optional[str] = None
-    joints: Optional[tuple[str, str, str]] = None
-    halted: bool = False
-
-    @staticmethod
-    def idle() -> "OverlayState":
-        return OverlayState(banner="Waiting for consent")
 
 
 def letterbox(rgb: np.ndarray, w: int, h: int) -> tuple[np.ndarray, float, int, int]:

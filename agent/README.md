@@ -30,6 +30,25 @@ docker compose --profile test run --rm agent-worker-test      # full pytest (pos
 Stream credentials come from the root `.env` (`NEXT_PUBLIC_STREAM_VIDEO_API_KEY`, `STREAM_VIDEO_SECRET_KEY`),
 mapped to the `STREAM_API_KEY` / `STREAM_API_SECRET` names getstream reads.
 
+### Full call flow on a live call (Milestone 4)
+
+```bash
+npm run dev:create-call && cp dev-session.json agent/cache/
+# physio (BARGE=1 talks over the coach once), agent with POSE_BACKEND=synthetic (periodic ~48 degree knee bends,
+# no clip needed), patient (consent + answers the pain question), callback stub in place of the web
+docker compose --profile test run --rm -e VOICE_SLUG=dev-espeak-ml -e BARGE=1 --entrypoint bash \
+  agent-worker-test scripts/flow_live.sh cache/dev-session.json
+# replay mode (DEV-14): set "mode":"replay","clip":"static_person.mp4" in the session json and add
+#   -e AGENT_REPLAY_CLIPS=static_person.mp4 -e AGENT_REPLAY_DIR=cache
+```
+
+Logs land in `agent/cache/flow-logs/<callId>/` (agent, physio, patient, stub, callbacks.jsonl).
+`python -m physiocoach.devtools.callback_stub` is a local stand-in for the web's `/api/agent/events`
+(verifies the HMAC with `AGENT_CALLBACK_SECRET`, validates every callback).
+
+Dev voice: `python -m physiocoach.voice.render_catalogue --provider espeak` (needs `espeak-ng`), then
+`VOICE_SLUG=dev-espeak-ml`. Robotic and offline: for pipeline tests only, never for a demo.
+
 ### Spike A (Milestone 2)
 
 ```bash

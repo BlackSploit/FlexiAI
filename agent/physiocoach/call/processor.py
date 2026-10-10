@@ -25,12 +25,14 @@ from vision_agents.core.processors import VideoPublisher
 from vision_agents.core.utils.video_forwarder import VideoForwarder
 from vision_agents.core.utils.video_track import QueuedVideoTrack, VideoFileTrack
 
-from ..pose.base import Keypoints, PoseBackend
-from ..pose.draw import OverlayState, draw_overlay, placeholder_frame
+from ..pose.base import FrameMeta, Keypoints, PoseBackend
+from ..pose.draw import draw_overlay, placeholder_frame
+from ..pose.overlay import OverlayState
 
 log = logging.getLogger(__name__)
 
-KeypointsCallback = Callable[[float, Optional[Keypoints], tuple[int, ...]], Awaitable[None]]
+SAMPLE_TOLERANCE = 0.75     # keep a frame when >= 75 % of the target interval has passed since the last one
+KeypointsCallback = Callable[[float, Optional[Keypoints], FrameMeta], Awaitable[None]]
 
 
 class FrameStats:
@@ -40,8 +42,10 @@ class FrameStats:
         self.every_s = every_s
         self.window_start = time.monotonic()
         self.cpu_start = time.process_time()
-        self.frames_in = 0
+        self.frames_in = 0          # frames delivered by the forwarder
+        self.frames_used = 0        # frames kept after timestamp sampling
         self.frames_out = 0
+        self.loop_lag_ms = 0.0      # worst event-loop lag in the window (lag probe)
         self.infer_ms: deque[float] = deque(maxlen=300)
         self.draw_ms: deque[float] = deque(maxlen=300)
         self.samples: list[dict] = []
@@ -54,14 +58,24 @@ class FrameStats:
         cpu = (time.process_time() - self.cpu_start) / dt * 100
         q = lambda xs, p: round(statistics.quantiles(xs, n=100)[p - 1], 1) if len(xs) >= 2 else None  # noqa: E731
         row = {
-            "in_fps": round(self.frames_in / dt, 1), "out_fps": round(self.frames_out / dt, 1),
+            "in_fps": round(self.frames_in / dt, 1), "used_fps": round(self.frames_used / dt, 1),
+            "out_fps": round(self.frames_out / dt, 1), "loop_lag_ms": round(self.loop_lag_ms, 1),
             "infer_ms_p50": q(self.infer_ms, 50), "infer_ms_p95": q(self.infer_ms, 95),
             "draw_ms_p50": q(self.draw_ms, 50), "cpu_pct": round(cpu, 1),
         }
         self.samples.append(row)
         log.info("pose stats %s", row)
         self.window_start, self.cpu_start = now, time.process_time()
-        self.frames_in = self.frames_out = 0
+        self.frames_in = self.frames_used = self.frames_out = 0
+        self.loop_lag_ms = 0.0
+
+    async def lag_probe(self, period: float = 0.05) -> None:
+        """Worst event-loop scheduling delay: a blocked loop starves frame delivery."""
+        loop = asyncio.get_running_loop()
+        while True:
+            t0 = loop.time()
+            await asyncio.sleep(period)
+            self.loop_lag_ms = max(self.loop_lag_ms, (loop.time() - t0 - period) * 1000)
 
 
 class PoseProcessor(VideoPublisher):
@@ -87,6 +101,7 @@ class PoseProcessor(VideoPublisher):
         self._last_pts_t: Optional[float] = None
         self._last_mono: Optional[float] = None
         self._last_placeholder = 0.0
+        self._last_used_t: Optional[float] = None
         self._agent = None
 
     def publish_video_track(self) -> QueuedVideoTrack:
@@ -112,6 +127,7 @@ class PoseProcessor(VideoPublisher):
             await self._attach_track(track, e.track_id)
 
     async def start(self) -> None:
+        self._lag_task = asyncio.create_task(self.stats.lag_probe())
         await self.out.add_frame(av.VideoFrame.from_ndarray(placeholder_frame(self.out_w, self.out_h), format="rgb24"))
 
     async def warmup(self) -> None:
@@ -126,8 +142,11 @@ class PoseProcessor(VideoPublisher):
         await self._detach()
         self._track_id = track_id
         self.subscribed_at = time.monotonic()
-        self._fwd = VideoForwarder(track, max_buffer=3, fps=self.fps, name=f"pose-{track_id}")
-        self._fwd.add_frame_handler(self._on_frame, fps=self.fps, name="pose")
+        # The forwarder throttles handlers by ARRIVAL time (min 1/fps since the last call): a 15 fps camera
+        # with a 12 fps handler then runs at ~7.5 fps. We take every frame and sample by frame timestamp.
+        self._fwd = VideoForwarder(track, max_buffer=3, fps=30, name=f"pose-{track_id}")
+        self._fwd.add_frame_handler(self._on_frame, fps=None, name="pose")
+        self._last_used_t = None
 
     async def attach_file(self, path: str) -> None:
         """Replay mode: the same pipeline fed from a looping file instead of the patient's camera."""
@@ -173,14 +192,19 @@ class PoseProcessor(VideoPublisher):
                     await self.out.add_frame(av.VideoFrame.from_ndarray(img, format="rgb24"))
                     self.stats.frames_out += 1
                 return
+            t = self._frame_time(frame)
+            if self._last_used_t is not None and t - self._last_used_t < SAMPLE_TOLERANCE / self.fps:
+                return                                        # sample by frame time, ~fps (15 fps input -> 15)
+            self._last_used_t = t
+            self.stats.frames_used += 1
             loop = asyncio.get_running_loop()
             rgb = frame.to_ndarray(format="rgb24")
-            t = self._frame_time(frame)
             t0 = time.perf_counter()
             kp = await loop.run_in_executor(self._pool, self._backend.infer, rgb, int(t * 1000))
             t1 = time.perf_counter()
             if self.on_keypoints:
-                await self.on_keypoints(t, kp, rgb.shape)
+                meta = FrameMeta(rgb.shape[1], rgb.shape[0], float(rgb[::8, ::8].mean()))
+                await self.on_keypoints(t, kp, meta)
             annotated = await loop.run_in_executor(self._pool, draw_overlay, rgb, kp, self.overlay(), self.out_w, self.out_h)
             t2 = time.perf_counter()
             await self.out.add_frame(av.VideoFrame.from_ndarray(annotated, format="rgb24"))
@@ -191,6 +215,8 @@ class PoseProcessor(VideoPublisher):
             self.stats.maybe_report()
 
     async def close(self) -> None:
+        if getattr(self, "_lag_task", None):
+            self._lag_task.cancel()
         await self._detach()
         self.out.stop()
         if self._backend:

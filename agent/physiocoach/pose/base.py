@@ -4,6 +4,7 @@
 """
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Protocol, Sequence
 
@@ -25,6 +26,14 @@ MEDIAPIPE_INDEX = {  # MediaPipe Pose, 33 landmarks
 }
 # Per side; plus shoulder-shoulder and hip-hip across the body.
 SKELETON_EDGES = [("shoulder", "elbow"), ("elbow", "wrist"), ("shoulder", "hip"), ("hip", "knee"), ("knee", "ankle")]
+
+
+@dataclass(frozen=True)
+class FrameMeta:
+    """What the flow needs about a frame besides keypoints (positioning prompts, §8.15)."""
+    width: int
+    height: int
+    luma: float          # mean brightness 0..255 (pos.light below 60)
 
 
 class PoseBackend(Protocol):
@@ -75,4 +84,7 @@ def backend_factory_from_env() -> Callable[[], PoseBackend]:
     if kind == "mediapipe":
         from .mediapipe_backend import MediaPipeBackend
         return MediaPipeBackend
+    if kind == "synthetic":                       # dev only: periodic knee bends, ignores the video
+        from .synthetic_backend import SyntheticBackend
+        return SyntheticBackend
     raise ValueError(f"unknown POSE_BACKEND {kind!r}")

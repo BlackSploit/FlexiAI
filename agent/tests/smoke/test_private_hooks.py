@@ -55,6 +55,26 @@ def test_agent_flow_interrupt_still_clears_tts_and_audio_queues():
     assert "await self.interrupt()" in say          # say(..., interrupt=True) for the safety phrase
 
 
+async def test_lean_vad_session_uses_one_thread():
+    import os
+
+    from physiocoach.call.vad import LeanSileroVADSessionPool
+    from physiocoach.pose.base import models_dir
+    path = models_dir() / "silero_vad.onnx"
+    if not path.exists():
+        pytest.skip("silero_vad.onnx not baked into this image")
+    pool = LeanSileroVADSessionPool(str(path))
+    opts = pool._model.get_session_options()
+    assert (opts.intra_op_num_threads, opts.inter_op_num_threads) == (1, 1)
+    assert 0.0 <= pool.session().predict_speech(_silence()) <= 1.0
+    assert os.path.basename(str(path)) == "silero_vad.onnx"
+
+
+def _silence():
+    from getstream.video.rtc.track_util import AudioFormat, PcmData
+    return PcmData.from_bytes(b"\x00\x00" * 960, sample_rate=48000, format=AudioFormat.S16, channels=1)
+
+
 async def test_no_chat_edge_returns_an_in_memory_conversation():
     conv = await NoChatEdge().create_conversation(None, None, "instr")
     assert type(conv).__name__ == "InMemoryConversation"

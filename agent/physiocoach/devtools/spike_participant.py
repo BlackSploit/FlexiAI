@@ -122,6 +122,10 @@ async def run(args) -> None:
             delay = round(time.time() * 1000 - data.get("ts", 0))
             log.info("custom %s from %s (%d ms) %s", data.get("type"), sender, delay,
                      {k: v for k, v in data.items() if k not in ("type", "v", "eventId", "ts")})
+        if args.role == "patient" and data.get("type") == "pc.request_pain" and sender == args.agent_user_id:
+            asyncio.get_running_loop().create_task(call.send_call_event(
+                user_id=user_id, custom=envelope("pc.pain_score", score=args.pain_score, setIndex=data["setIndex"])))
+            log.info("answering pain request: %d", args.pain_score)
 
     onsets = AudioOnsets()
     first_onset = asyncio.Event()
@@ -173,6 +177,7 @@ def main() -> None:
     p.add_argument("--fps", type=int, default=30, help="patient: frame rate the clip is published at")
     p.add_argument("--consent-after", type=float, default=8.0)
     p.add_argument("--consent-repeats", type=int, default=2)
+    p.add_argument("--pain-score", type=int, default=3, help="patient: answer pc.request_pain with this score")
     p.add_argument("--seconds", type=float, default=60.0)
     p.add_argument("--out-dir", default="cache/spike-tiles")
     p.add_argument("--speak-wav", help="physio: speak this WAV over the coach (barge-in test)")
