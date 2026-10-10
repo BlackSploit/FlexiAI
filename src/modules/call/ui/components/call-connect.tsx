@@ -66,9 +66,9 @@ export const CallConnect = ({
       setCall(_call);
 
       return () => {
+        // Leave only: unmounting (e.g. a page refresh) must never end the call for everyone.
         if (_call.state.callingState !== CallingState.LEFT) {
           _call.leave();
-          _call.endCall();
           setCall(undefined);
         }
       };

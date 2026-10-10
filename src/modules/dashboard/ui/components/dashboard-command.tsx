@@ -44,12 +44,12 @@ export const DashboardCommand = ({ open, setOpen }: Props) => {
         onValueChange={(value) => setSearch(value)}
       />
       <CommandList>
+        <CommandEmpty>
+          <span className="text-muted-foreground text-sm">
+            No results found
+          </span>
+        </CommandEmpty>
         <CommandGroup heading="Meetings">
-          <CommandEmpty>
-            <span className="text-muted-foreground text-sm">
-              No meetings found
-            </span>
-          </CommandEmpty>
           {meetings.data?.items.map((meeting) => (
             <CommandItem
               onSelect={() => {
@@ -63,11 +63,6 @@ export const DashboardCommand = ({ open, setOpen }: Props) => {
           ))}
         </CommandGroup>
         <CommandGroup heading="Agents">
-          <CommandEmpty>
-            <span className="text-muted-foreground text-sm">
-              No agents found
-            </span>
-          </CommandEmpty>
           {agents.data?.items.map((agent) => (
             <CommandItem
               onSelect={() => {

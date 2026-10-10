@@ -14,12 +14,24 @@ import { MeetingStatus, StreamTranscriptItem } from "../types";
 import { meetingsInsertSchema, meetingsUpdateSchema } from "../schemas";
 import { streamChat } from "@/lib/stream-chat";
 
+/** Meetings may only reference agents the caller owns. */
+async function assertOwnAgent(agentId: string | undefined, userId: string) {
+  if (!agentId) return;
+  const [ownAgent] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.userId, userId)));
+  if (!ownAgent) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
+  }
+}
+
 export const meetingsRouter = createTRPCRouter({
   generateChatToken: protectedProcedure.mutation(async ({ ctx }) => {
     const token = streamChat.createToken(ctx.auth.user.id);
     await streamChat.upsertUser({
       id: ctx.auth.user.id,
-      role: "admin",
+      role: "user",
     });
 
     return token;
@@ -119,20 +131,16 @@ export const meetingsRouter = createTRPCRouter({
       {
         id: ctx.auth.user.id,
         name: ctx.auth.user.name,
-        role: "admin",
-        image: 
+        role: "user",
+        image:
           ctx.auth.user.image ??
           generateAvatarUri({ seed: ctx.auth.user.name, variant: "initials" }),
       },
     ]);
 
-    const expirationTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-    const issuedAt = Math.floor(Date.now() / 1000) - 60;
-
     const token = streamVideo.generateUserToken({
       user_id: ctx.auth.user.id,
-      exp: expirationTime,
-      validity_in_seconds: issuedAt,
+      validity_in_seconds: 60 * 60, // 1 hour
     });
 
     return token;
@@ -162,6 +170,8 @@ export const meetingsRouter = createTRPCRouter({
   update: protectedProcedure
     .input(meetingsUpdateSchema)
     .mutation(async ({ ctx, input }) => {
+      await assertOwnAgent(input.agentId, ctx.auth.user.id);
+
       const [updatedMeeting] = await db
         .update(meetings)
         .set(input)
@@ -185,6 +195,8 @@ export const meetingsRouter = createTRPCRouter({
   create: protectedProcedure
     .input(meetingsInsertSchema)
     .mutation(async ({ input, ctx }) => {
+      await assertOwnAgent(input.agentId, ctx.auth.user.id);
+
       const [createdMeeting] = await db
         .insert(meetings)
         .values({
@@ -313,7 +325,6 @@ export const meetingsRouter = createTRPCRouter({
       const [total] = await db
         .select({ count: count() })
         .from(meetings)
-        .innerJoin(agents, eq(meetings.agentId, agents.id))
         .where(
           and(
             eq(meetings.userId, ctx.auth.user.id),

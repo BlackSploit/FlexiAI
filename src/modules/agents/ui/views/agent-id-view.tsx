@@ -101,7 +101,7 @@ export const AgentIdViewLoading = () => {
   return (
     <LoadingState
       title="Loading Agent"
-      description="This may take a fews econds"
+      description="This may take a few seconds"
     />
   );
 };

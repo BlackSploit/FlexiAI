@@ -4,11 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import {
   MessageNewEvent,
-  CallEndedEvent,
   CallTranscriptionReadyEvent,
   CallRecordingReadyEvent,
-  CallSessionParticipantLeftEvent,
-  CallSessionStartedEvent,
 } from "@stream-io/node-sdk";
 
 import { db } from "@/db";
@@ -18,11 +15,19 @@ import { inngest } from "@/inngest/client";
 import { generateAvatarUri } from "@/lib/avatar";
 import { streamChat } from "@/lib/stream-chat";
 
-const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
 function verifySignatureWithSDK(body: string, signature: string): boolean {
   return streamVideo.verifyWebhook(body, signature);
 };
+
+/** One place to read the call id: `call.id`, else the id part of `call_cid` ("type:id"). */
+function getCallId(payload: Record<string, unknown>): string | undefined {
+  const call = payload.call as { id?: string } | undefined;
+  const callCid = payload.call_cid as string | undefined;
+  return call?.id ?? callCid?.split(":")[1];
+}
+
+/** Unknown calls and unhandled events get 200 so Stream does not retry them. */
+const ignored = () => NextResponse.json({ status: "ignored" });
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("x-signature");
@@ -35,27 +40,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (apiKey !== process.env.NEXT_PUBLIC_STREAM_VIDEO_API_KEY) {
+    return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+  }
+
   const body = await req.text();
 
   if (!verifySignatureWithSDK(body, signature)) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let payload: unknown;
+  let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(body) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const eventType = (payload as Record<string, unknown>)?.type;
+  const eventType = payload?.type;
 
   if (eventType === "call.session_started") {
-    const event = payload as CallSessionStartedEvent;
-    const meetingId = event.call.custom?.meetingId;
+    const meetingId = getCallId(payload);
 
     if (!meetingId) {
-      return NextResponse.json({ error: "Missing meetingId" }, { status: 400 });
+      return ignored();
     }
 
     const [existingMeeting] = await db
@@ -72,7 +80,7 @@ export async function POST(req: NextRequest) {
       );
 
     if (!existingMeeting) {
-      return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+      return ignored();
     }
 
     await db
@@ -89,7 +97,7 @@ export async function POST(req: NextRequest) {
       .where(eq(agents.id, existingMeeting.agentId));
 
     if (!existingAgent) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+      return ignored();
     }
 
     const call = streamVideo.video.call("default", meetingId);
@@ -103,21 +111,14 @@ export async function POST(req: NextRequest) {
       instructions: existingAgent.instructions,
     });
   } else if (eventType === "call.session_participant_left") {
-    const event = payload as CallSessionParticipantLeftEvent;
-    const meetingId = event.call_cid.split(":")[1]; // call_cid is formatted as "type:id"
-
-    if (!meetingId) {
-      return NextResponse.json({ error: "Missing meetingId" }, { status: 400 });
-    }
-
-    const call = streamVideo.video.call("default", meetingId);
-    await call.end();
+    // Never end the call because one participant left (a refresh or a dropped
+    // connection would otherwise kill the session for everyone).
+    return NextResponse.json({ status: "ok" });
   } else if (eventType === "call.session_ended") {
-    const event = payload as CallEndedEvent;
-    const meetingId = event.call.custom?.meetingId;
+    const meetingId = getCallId(payload);
 
     if (!meetingId) {
-      return NextResponse.json({ error: "Missing meetingId" }, { status: 400 });
+      return ignored();
     }
 
     await db
@@ -128,8 +129,12 @@ export async function POST(req: NextRequest) {
       })
       .where(and(eq(meetings.id, meetingId), eq(meetings.status, "active")));
   } else if (eventType === "call.transcription_ready") {
-    const event = payload as CallTranscriptionReadyEvent;
-    const meetingId = event.call_cid.split(":")[1]; // call_cid is formatted as "type:id"
+    const event = payload as unknown as CallTranscriptionReadyEvent;
+    const meetingId = getCallId(payload);
+
+    if (!meetingId) {
+      return ignored();
+    }
 
     const [updatedMeeting] = await db
       .update(meetings)
@@ -140,7 +145,7 @@ export async function POST(req: NextRequest) {
       .returning();
 
     if (!updatedMeeting) {
-      return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+      return ignored();
     }
 
     await inngest.send({
@@ -151,8 +156,12 @@ export async function POST(req: NextRequest) {
       },
     });
   } else if (eventType === "call.recording_ready") {
-    const event = payload as CallRecordingReadyEvent;
-    const meetingId = event.call_cid.split(":")[1]; // call_cid is formatted as "type:id"
+    const event = payload as unknown as CallRecordingReadyEvent;
+    const meetingId = getCallId(payload);
+
+    if (!meetingId) {
+      return ignored();
+    }
 
     await db
       .update(meetings)
@@ -161,17 +170,14 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(meetings.id, meetingId));
   } else if (eventType === "message.new") {
-    const event = payload as MessageNewEvent;
+    const event = payload as unknown as MessageNewEvent;
 
     const userId = event.user?.id;
     const channelId = event.channel_id;
     const text = event.message?.text;
 
     if (!userId || !channelId || !text) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
+      return ignored();
     }
 
     const [existingMeeting] = await db
@@ -180,7 +186,7 @@ export async function POST(req: NextRequest) {
       .where(and(eq(meetings.id, channelId), eq(meetings.status, "completed")));
 
     if (!existingMeeting) {
-      return NextResponse.json({ error: "Meeting not found" }, { status: 404 });
+      return ignored();
     }
 
     const [existingAgent] = await db
@@ -189,27 +195,27 @@ export async function POST(req: NextRequest) {
       .where(eq(agents.id, existingMeeting.agentId));
 
     if (!existingAgent) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+      return ignored();
     }
 
     if (userId !== existingAgent.id) {
       const instructions = `
       You are an AI assistant helping the user revisit a recently completed meeting.
       Below is a summary of the meeting, generated from the transcript:
-      
+
       ${existingMeeting.summary}
-      
+
       The following are your original instructions from the live meeting assistant. Please continue to follow these behavioral guidelines as you assist the user:
-      
+
       ${existingAgent.instructions}
-      
+
       The user may ask questions about the meeting, request clarifications, or ask for follow-up actions.
       Always base your responses on the meeting summary above.
-      
+
       You also have access to the recent conversation history between you and the user. Use the context of previous messages to provide relevant, coherent, and helpful responses. If the user's question refers to something discussed earlier, make sure to take that into account and maintain continuity in the conversation.
-      
+
       If the summary does not contain enough information to answer a question, politely let the user know.
-      
+
       Be concise, helpful, and focus on providing accurate information from the meeting and the ongoing conversation.
       `;
 
@@ -224,6 +230,8 @@ export async function POST(req: NextRequest) {
           content: message.text || "",
         }));
 
+      // Created per request so the module can load without OPENAI_API_KEY (e.g. during `next build`).
+      const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
       const GPTResponse = await openaiClient.chat.completions.create({
         messages: [
           { role: "system", content: instructions },
@@ -236,10 +244,7 @@ export async function POST(req: NextRequest) {
       const GPTResponseText = GPTResponse.choices[0].message.content;
 
       if (!GPTResponseText) {
-        return NextResponse.json(
-          { error: "No response from GPT" },
-          { status: 400 }
-        );
+        return ignored();
       }
 
       const avatarUrl = generateAvatarUri({
@@ -262,6 +267,8 @@ export async function POST(req: NextRequest) {
         },
       });
     }
+  } else {
+    return ignored();
   }
 
   return NextResponse.json({ status: "ok" });

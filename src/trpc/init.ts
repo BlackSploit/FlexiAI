@@ -6,7 +6,8 @@ export const createTRPCContext = cache(async () => {
   /**
    * @see: https://trpc.io/docs/server/context
    */
-  return { userId: 'user_123' };
+  // The authenticated session is attached by `protectedProcedure`.
+  return {};
 });
 // Avoid exporting the entire t-object
 // since it's not very descriptive.

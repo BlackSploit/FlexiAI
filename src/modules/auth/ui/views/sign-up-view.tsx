@@ -176,7 +176,7 @@ export const SignUpView = () => {
                   type="submit"
                   className="w-full"
                 >
-                  Sign in
+                  Create account
                 </Button>
                 <div className="text-center text-sm">
                   Already have an account?{" "}
