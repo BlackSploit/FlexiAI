@@ -17,6 +17,9 @@ services:
       STREAM_API_SECRET: ${STREAM_VIDEO_SECRET_KEY:-}
       REDIS_URL: redis://redis:6379/0
       WEB_INTERNAL_URL: http://host.docker.internal:3000
+      # Shared with the web app (root .env): web -> worker control calls and worker -> web callbacks.
+      AGENT_CONTROL_SECRET: ${AGENT_CONTROL_SECRET:-}
+      AGENT_CALLBACK_SECRET: ${AGENT_CALLBACK_SECRET:-}
       WORKER_HOST: agent-worker-dev
     extra_hosts: ["host.docker.internal:host-gateway"]
     ports: ["127.0.0.1:8080:8080"]

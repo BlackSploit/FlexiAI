@@ -2,10 +2,10 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Dispatch, SetStateAction, useState } from "react";
 
-import { 
-  CommandResponsiveDialog, 
-  CommandInput, 
-  CommandItem, 
+import {
+  CommandResponsiveDialog,
+  CommandInput,
+  CommandItem,
   CommandList,
   CommandGroup,
   CommandEmpty
@@ -23,60 +23,38 @@ export const DashboardCommand = ({ open, setOpen }: Props) => {
   const [search, setSearch] = useState("");
 
   const trpc = useTRPC();
-  const meetings = useQuery(
-    trpc.meetings.getMany.queryOptions({
-      search,
-      pageSize: 100,
-    })
-  );
-  const agents = useQuery(
-    trpc.agents.getMany.queryOptions({
-      search,
-      pageSize: 100,
-    })
-  );
+  const patients = useQuery(trpc.patients.getMany.queryOptions({ search, pageSize: 100 }));
+  const sessions = useQuery(trpc.sessions.getMany.queryOptions({ search, pageSize: 100 }));
+
+  const go = (href: string) => {
+    router.push(href);
+    setOpen(false);
+  };
 
   return (
     <CommandResponsiveDialog shouldFilter={false} open={open} onOpenChange={setOpen}>
       <CommandInput
-        placeholder="Find a meeting or agent..."
+        placeholder="Find a patient or session…"
         value={search}
         onValueChange={(value) => setSearch(value)}
       />
       <CommandList>
         <CommandEmpty>
-          <span className="text-muted-foreground text-sm">
-            No results found
-          </span>
+          <span className="text-muted-foreground text-sm">No results found</span>
         </CommandEmpty>
-        <CommandGroup heading="Meetings">
-          {meetings.data?.items.map((meeting) => (
-            <CommandItem
-              onSelect={() => {
-                router.push(`/meetings/${meeting.id}`);
-                setOpen(false);
-              }}
-              key={meeting.id}
-            >
-              {meeting.name}
+        <CommandGroup heading="Patients">
+          {patients.data?.items.map((patient) => (
+            <CommandItem key={patient.id} onSelect={() => go(`/patients/${patient.id}`)}>
+              <GeneratedAvatar seed={patient.name} variant="initials" className="size-5" />
+              {patient.name}
             </CommandItem>
           ))}
         </CommandGroup>
-        <CommandGroup heading="Agents">
-          {agents.data?.items.map((agent) => (
-            <CommandItem
-              onSelect={() => {
-                router.push(`/agents/${agent.id}`);
-                setOpen(false);
-              }}
-              key={agent.id}
-            >
-              <GeneratedAvatar
-                seed={agent.name}
-                variant="botttsNeutral"
-                className="size-5"
-              />
-              {agent.name}
+        <CommandGroup heading="Sessions">
+          {sessions.data?.items.map((session) => (
+            <CommandItem key={session.id} onSelect={() => go(`/sessions/${session.id}`)}>
+              {session.exercise.nameEn} · {session.patient.name}
+              <span className="ml-auto text-xs text-muted-foreground capitalize">{session.status}</span>
             </CommandItem>
           ))}
         </CommandGroup>

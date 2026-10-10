@@ -11,14 +11,13 @@ interface Props {
   children: React.ReactNode;
 }
 
-// Single session guard for every dashboard page (the physio role check is added
-// once the `role` column exists, Milestone 5).
+// The single physio guard for every dashboard page.
 const Layout = async ({ children }: Props) => {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
 
-  if (!session) {
+  if (!session || session.user.role !== "physio") {
     redirect("/sign-in");
   }
 

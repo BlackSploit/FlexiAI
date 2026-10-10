@@ -1,0 +1,54 @@
+/**
+ * Bilingual UI strings for the call screens (Malayalam first for patients).
+ * DRAFT Malayalam: native-speaker review required for every line.
+ */
+export const S = {
+  consentTitle: { ml: "വ്യായാമ സഹായി നിങ്ങളുടെ വീഡിയോ ശ്രദ്ധിക്കും", en: "The coach watches your video to count reps" },
+  consentBody: {
+    ml: "ആവർത്തനങ്ങൾ എണ്ണാനും ചലനം അളക്കാനും മാത്രം. വീഡിയോ റെക്കോർഡ് ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ഇല്ല.",
+    en: "Only to count repetitions and measure movement. The video is not recorded or stored.",
+  },
+  agree: { ml: "ഞാൻ സമ്മതിക്കുന്നു", en: "I agree" },
+  stop: { ml: "നിർത്തുക", en: "Stop" },
+  physioAlerted: { ml: "ഫിസിയോതെറാപ്പിസ്റ്റിനെ അറിയിച്ചു", en: "Your physio has been alerted" },
+  painTitle: { ml: "ഇപ്പോൾ എത്ര വേദനയുണ്ട്?", en: "How much pain now?" },
+  painNone: { ml: "വേദനയില്ല", en: "No pain" },
+  painWorst: { ml: "ഏറ്റവും കൂടിയ വേദന", en: "Worst pain" },
+  dizziness: { ml: "തലകറക്കം", en: "Dizziness" },
+  chestPain: { ml: "നെഞ്ചുവേദന", en: "Chest pain" },
+  sharpPain: { ml: "കഠിനമായ വേദന", en: "Sharp pain" },
+  symptomTitle: { ml: "ഇവയിൽ എന്തെങ്കിലും ഉണ്ടോ?", en: "Feeling any of these?" },
+  undo: { ml: "മാറ്റുക", en: "Undo" },
+  coachJoining: { ml: "സഹായി ചേരുന്നു…", en: "Coach is joining…" },
+  coachDown: { ml: "സഹായിയുമായുള്ള ബന്ധം നഷ്ടപ്പെട്ടു", en: "Coach disconnected" },
+  enableSound: { ml: "ശബ്ദം ഓണാക്കാൻ ടാപ്പ് ചെയ്യുക", en: "No sound? Tap here" },
+  thanks: { ml: "നന്ദി! ഇന്നത്തെ സെഷൻ കഴിഞ്ഞു.", en: "Thank you! Today's session is over." },
+  linkInvalid: {
+    ml: "ഈ ലിങ്ക് കാലഹരണപ്പെട്ടു അല്ലെങ്കിൽ അസാധുവാണ്. പുതിയ ലിങ്കിനായി നിങ്ങളുടെ ഫിസിയോതെറാപ്പിസ്റ്റിനോട് ചോദിക്കുക.",
+    en: "This link has expired or is invalid. Ask your physiotherapist for a new link.",
+  },
+  sessionEnded: { ml: "ഈ സെഷൻ അവസാനിച്ചു", en: "This session has ended" },
+  readyToJoin: { ml: "ചേരാൻ തയ്യാറാണോ?", en: "Ready to join?" },
+  join: { ml: "ചേരുക", en: "Join" },
+  placementSide: {
+    ml: "ക്യാമറയിലേക്ക് വശം തിരിഞ്ഞ് നിൽക്കുക; കാൽ/കൈ മുഴുവനും സ്ക്രീനിൽ കാണണം; നല്ല വെളിച്ചം വേണം.",
+    en: "Stand side-on to the camera, whole limb in the frame, in good light.",
+  },
+  placementFront: {
+    ml: "ക്യാമറയ്ക്ക് അഭിമുഖമായി നിൽക്കുക; കൈ മുഴുവനും സ്ക്രീനിൽ കാണണം; നല്ല വെളിച്ചം വേണം.",
+    en: "Face the camera, whole arm in the frame, in good light.",
+  },
+} as const;
+
+export const PHASE_LABEL: Record<string, { ml: string; en: string }> = {
+  greeting: { ml: "സ്വാഗതം", en: "Welcome" },
+  await_consent: { ml: "സമ്മതം", en: "Consent" },
+  positioning: { ml: "സ്ഥാനം ശരിയാക്കുന്നു", en: "Positioning" },
+  countdown: { ml: "തയ്യാറാകൂ", en: "Get ready" },
+  set: { ml: "വ്യായാമം", en: "Exercise" },
+  summary: { ml: "സെറ്റ് പൂർത്തിയായി", en: "Set complete" },
+  await_pain: { ml: "വേദന", en: "Pain check" },
+  rest: { ml: "വിശ്രമം", en: "Rest" },
+  done: { ml: "കഴിഞ്ഞു", en: "Done" },
+  halted: { ml: "നിർത്തി", en: "Stopped" },
+};

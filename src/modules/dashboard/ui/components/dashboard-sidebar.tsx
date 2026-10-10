@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { BotIcon, VideoIcon } from "lucide-react";
+import { ClipboardListIcon, LayoutDashboardIcon, UsersIcon, VideoIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -22,16 +22,10 @@ import {
 import { DashboardUserButton } from "./dashboard-user-button";
 
 const firstSection = [
-  {
-    icon: VideoIcon,
-    label: "Meetings",
-    href: "/meetings",
-  },
-  {
-    icon: BotIcon,
-    label: "Agents",
-    href: "/agents",
-  },
+  { icon: LayoutDashboardIcon, label: "Overview", href: "/overview" },
+  { icon: UsersIcon, label: "Patients", href: "/patients" },
+  { icon: ClipboardListIcon, label: "Prescriptions", href: "/prescriptions" },
+  { icon: VideoIcon, label: "Sessions", href: "/sessions" },
 ];
 
 export const DashboardSidebar = () => {
@@ -41,8 +35,8 @@ export const DashboardSidebar = () => {
     <Sidebar>
       <SidebarHeader className="text-sidebar-accent-foreground">
         <Link href="/" className="flex items-center gap-2 px-2 pt-2">
-          <Image src="/logo.svg" height={36} width={36} alt="Meet.AI" />
-          <p className="text-2xl font-semibold">Meet.AI</p>
+          <Image src="/logo.svg" height={36} width={36} alt="PhysioCoach" />
+          <p className="text-2xl font-semibold">PhysioCoach</p>
         </Link>
       </SidebarHeader>
       <div className="px-4 py-2">

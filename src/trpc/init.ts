@@ -6,7 +6,7 @@ export const createTRPCContext = cache(async () => {
   /**
    * @see: https://trpc.io/docs/server/context
    */
-  // The authenticated session is attached by `protectedProcedure`.
+  // The authenticated session is attached by `protectedProcedure`; patients use `requireJoin(token)`.
   return {};
 });
 // Avoid exporting the entire t-object
@@ -33,4 +33,11 @@ export const protectedProcedure = baseProcedure.use(async ({ ctx, next }) => {
   }
 
   return next({ ctx: { ...ctx, auth: session } });
+});
+/** Physio-only data: every query below is also scoped to ctx.auth.user.id. */
+export const physioProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.auth.user.role !== "physio") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Physiotherapists only" });
+  }
+  return next({ ctx });
 });
