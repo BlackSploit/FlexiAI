@@ -1,0 +1,35 @@
+[
+  {
+    "id": "knee_bend",
+    "nameEn": "Knee bend",
+    "nameMl": "കാൽമുട്ട് മടക്കൽ",
+    "joints": ["hip", "knee", "ankle"],
+    "mode": "flex",
+    "rest": 15, "start": 25, "minPeak": 35, "defaultTarget": 60,
+    "cameraView": "side",
+    "howToEn": "Stand side-on to the camera, holding a chair for support. Slowly bend your knee, then straighten it fully.",
+    "howToMl": "ഒരു കസേരയിൽ പിടിച്ച് ക്യാമറയിലേക്ക് വശം തിരിഞ്ഞ് നിൽക്കുക. പതുക്കെ കാൽമുട്ട് മടക്കുക, പിന്നെ പൂർണ്ണമായി നിവർത്തുക."
+  },
+  {
+    "id": "elbow_bend",
+    "nameEn": "Elbow bend",
+    "nameMl": "കൈമുട്ട് മടക്കൽ",
+    "joints": ["shoulder", "elbow", "wrist"],
+    "mode": "flex",
+    "rest": 20, "start": 30, "minPeak": 45, "defaultTarget": 100,
+    "cameraView": "side",
+    "howToEn": "Sit or stand side-on to the camera with your arm by your side. Bend your elbow to bring your hand up, then lower it fully.",
+    "howToMl": "കൈ വശത്ത് വെച്ച് ക്യാമറയിലേക്ക് വശം തിരിഞ്ഞ് ഇരിക്കുക അല്ലെങ്കിൽ നിൽക്കുക. കൈമുട്ട് മടക്കി കൈ ഉയർത്തുക, പിന്നെ പൂർണ്ണമായി താഴ്ത്തുക."
+  },
+  {
+    "id": "shoulder_raise",
+    "nameEn": "Shoulder raise",
+    "nameMl": "തോൾ ഉയർത്തൽ",
+    "joints": ["hip", "shoulder", "elbow"],
+    "mode": "direct",
+    "rest": 30, "start": 40, "minPeak": 50, "defaultTarget": 90,
+    "cameraView": "front",
+    "howToEn": "Stand facing the camera. Keep your elbow straight and slowly raise your arm out to the side, then lower it.",
+    "howToMl": "ക്യാമറയ്ക്ക് അഭിമുഖമായി നിൽക്കുക. കൈമുട്ട് നിവർത്തി പിടിച്ച് പതുക്കെ കൈ വശത്തേക്ക് ഉയർത്തുക, പിന്നെ താഴ്ത്തുക."
+  }
+]

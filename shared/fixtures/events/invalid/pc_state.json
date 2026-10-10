@@ -1,0 +1,9 @@
+{
+  "type": "pc.state",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "phase": "dancing",
+  "setIndex": 1,
+  "setsPlanned": 2
+}

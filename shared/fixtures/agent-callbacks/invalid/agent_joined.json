@@ -1,0 +1,7 @@
+{
+  "type": "agent_joined",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "pid": "4242",
+  "host": "agent-worker-1"
+}

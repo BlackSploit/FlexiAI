@@ -1,0 +1,8 @@
+{
+  "type": "pain_recorded",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "setIndex": 0,
+  "score": 3,
+  "clientEventId": "evt_pain0001"
+}

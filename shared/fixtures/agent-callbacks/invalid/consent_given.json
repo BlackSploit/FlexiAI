@@ -1,0 +1,6 @@
+{
+  "type": "consent_given",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "at": "yesterday"
+}

@@ -1,0 +1,15 @@
+{
+  "type": "pc.set_summary",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "setIndex": 1,
+  "repsDone": 10,
+  "repsPlanned": 10,
+  "avgPeak": 48,
+  "bestPeak": 51.2,
+  "target": 60,
+  "fastReps": 0,
+  "score": 120,
+  "feedbackSource": "rules"
+}

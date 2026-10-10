@@ -1,0 +1,372 @@
+{
+  "type": "set_result",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "setIndex": 1,
+  "repsDone": 10,
+  "repsPlanned": 10,
+  "targetAngle": 60,
+  "side": "left",
+  "avgPeak": 48.0,
+  "bestPeak": 48.0,
+  "lowestPeak": 48.0,
+  "avgRepSeconds": 2.5,
+  "fastReps": 0,
+  "score": 88.0,
+  "perRep": [
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    },
+    {
+      "peak": 48.0,
+      "seconds": 2.5,
+      "tooFast": false
+    }
+  ],
+  "feedbackMl": "നല്ല ശ്രമം, നിങ്ങൾ ശരാശരി 48 ഡിഗ്രി വരെ മടക്കി, പക്ഷേ ലക്ഷ്യം 60 ഡിഗ്രി ആണ്. ഇനി 3 തവണ കൂടി പതുക്കെ ചെയ്യൂ.",
+  "feedbackEn": "Good effort, you bent to 48° on average, but the target is 60°. Next: do 3 more reps, slowly.",
+  "feedbackSource": "rules",
+  "stopReason": "completed"
+}

@@ -1,0 +1,7 @@
+{
+  "type": "agent_exited",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "code": 0,
+  "setsCompleted": 1
+}

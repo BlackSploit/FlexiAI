@@ -1,0 +1,7 @@
+{
+  "type": "safety_alert",
+  "eventId": "cb_0001abcd",
+  "sessionId": "sess_demo01",
+  "kind": "symptom",
+  "symptom": "dizziness"
+}

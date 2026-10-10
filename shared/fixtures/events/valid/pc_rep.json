@@ -1,0 +1,13 @@
+{
+  "type": "pc.rep",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "setIndex": 1,
+  "n": 3,
+  "peak": 48.2,
+  "seconds": 2.4,
+  "tooFast": false,
+  "target": 60,
+  "repsPlanned": 10
+}

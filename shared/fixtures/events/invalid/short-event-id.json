@@ -1,0 +1,7 @@
+{
+  "type": "pc.stop",
+  "v": 1,
+  "eventId": "abc",
+  "ts": 1791700000000,
+  "reason": "button"
+}

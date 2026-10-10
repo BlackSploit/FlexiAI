@@ -1,0 +1,28 @@
+{
+  "sessionId": "sess_demo01",
+  "callType": "default",
+  "callId": "sess_demo01",
+  "agentUserId": "physiocoach-agent",
+  "physioId": "phy_1",
+  "exercise": {
+    "id": "knee_bend",
+    "joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "mode": "flex",
+    "rest": 15,
+    "start": 25,
+    "minPeak": 35,
+    "cameraView": "side"
+  },
+  "prescription": {
+    "side": "auto",
+    "targetAngle": 60,
+    "reps": 10,
+    "sets": 1,
+    "minSecondsPerRep": 2
+  },
+  "mode": "live"
+}

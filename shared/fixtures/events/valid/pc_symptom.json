@@ -1,0 +1,7 @@
+{
+  "type": "pc.symptom",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "kind": "chest_pain"
+}
