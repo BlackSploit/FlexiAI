@@ -8,6 +8,10 @@ regardless of processors, so the subscription exists even with no VideoProcessor
 
 No inference before consent (§1.4 #7): until `enabled` is set the tile shows a static placeholder
 and patient frames are dropped unread.
+
+Live Coach stills (WP1b, D5): the last ANNOTATED tile is kept and `latest_jpeg()` encodes a small JPEG of it
+on demand (lazy cv2). It returns None before consent / while disabled, without a frame, or when the frame
+is stale, so no raw patient frame ever leaves the process through this path.
 """
 
 import asyncio
@@ -31,6 +35,7 @@ from ..pose.overlay import OverlayState
 
 log = logging.getLogger(__name__)
 
+STILL_MAX_AGE_S = 2.0       # latest_jpeg() refuses an older annotated frame (camera gone / stalled)
 SAMPLE_TOLERANCE = 0.75     # keep a frame when >= 75 % of the target interval has passed since the last one
 KeypointsCallback = Callable[[float, Optional[Keypoints], FrameMeta], Awaitable[None]]
 
@@ -103,6 +108,25 @@ class PoseProcessor(VideoPublisher):
         self._last_placeholder = 0.0
         self._last_used_t: Optional[float] = None
         self._agent = None
+        self._last_annotated = None                            # last annotated RGB tile (live-coach stills)
+        self._last_annotated_at: Optional[float] = None
+
+    def latest_jpeg(self, width: int = 384, quality: int = 60, max_age_s: float = STILL_MAX_AGE_S) -> Optional[bytes]:
+        """JPEG of the last annotated tile, at most `width` px wide; None unless enabled with a fresh frame."""
+        img, at = self._last_annotated, self._last_annotated_at
+        if not self.enabled or img is None or at is None or time.monotonic() - at > max_age_s:
+            return None
+        try:
+            import cv2                                         # lazy: only live mode with stills needs it
+            h, w = img.shape[:2]
+            if w > width:
+                img = cv2.resize(img, (int(width), max(1, round(h * width / w))), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)])
+            return buf.tobytes() if ok else None
+        except Exception as e:  # noqa: BLE001 - a still is optional
+            log.debug("latest_jpeg failed: %s", e)
+            return None
 
     def publish_video_track(self) -> QueuedVideoTrack:
         return self.out
@@ -156,6 +180,7 @@ class PoseProcessor(VideoPublisher):
         if self._fwd:
             await self._fwd.remove_frame_handler(self._on_frame)
         self._fwd, self._track_id = None, None
+        self._last_annotated, self._last_annotated_at = None, None
 
     def _frame_time(self, frame: av.VideoFrame) -> float:
         """Continuous, strictly increasing seconds.
@@ -208,6 +233,7 @@ class PoseProcessor(VideoPublisher):
             annotated = await loop.run_in_executor(self._pool, draw_overlay, rgb, kp, self.overlay(), self.out_w, self.out_h)
             t2 = time.perf_counter()
             await self.out.add_frame(av.VideoFrame.from_ndarray(annotated, format="rgb24"))
+            self._last_annotated, self._last_annotated_at = annotated, time.monotonic()
             self.stats.frames_out += 1
             self.stats.infer_ms.append((t1 - t0) * 1000)
             self.stats.draw_ms.append((t2 - t1) * 1000)

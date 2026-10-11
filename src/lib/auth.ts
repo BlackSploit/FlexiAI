@@ -17,7 +17,6 @@ export const auth = betterAuth({
   }),
   trustedOrigins: [
     ...new Set([process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000", "http://localhost:3000"]),
-    ...(process.env.NGROK_DOMAIN ? [`https://${process.env.NGROK_DOMAIN}`] : []),
   ],
   user: {
     additionalFields: {

@@ -15,7 +15,8 @@ Pure asyncio: `agent` needs send_custom_event; speaker/pose/outbox are injected 
 Live-coach hooks (inert unless used): `halt_listeners` are called synchronously inside `halt()` (each in
 try/except) so the coach is silenced in the same tick; `halted` / `paused` / `consent_given` / `phase` are
 read directly by the coach's gates; `progress()` is the only source of numbers for the coach;
-`ready_to_continue()` ends a rest early.
+`ready_to_continue()` ends a rest early; `request_rest()` lengthens the current (or the next) rest;
+`instruction_ids()` are the positioning instruction clips (repeat_instructions).
 """
 
 import asyncio
@@ -41,6 +42,8 @@ log = logging.getLogger(__name__)
 STOP_REASON = {"stop": "stop_pressed", "pain": "pain", "symptom": "symptom"}
 EDGE_FRACTION = 0.03          # joints within 3 % of the frame edge -> "move the camera back"
 DARK_LUMA = 60.0
+REST_EXTEND_S = 30.0          # request_rest adds this much ...
+REST_EXTEND_MAX = 2           # ... at most this many times per rest
 
 NoteFn = Callable[[dict, dict], Awaitable[tuple[dict, str]]]
 PrefetchFn = Callable[[str], Awaitable[bool]]
@@ -149,6 +152,8 @@ class Flow:
         self.last_summary: Optional[dict] = None
         self._ready = asyncio.Event()
         self._rest_deadline: Optional[float] = None
+        self._rest_extra = 0.0                           # requested before the rest started (summary/await_pain)
+        self._rest_extensions = 0                        # request_rest calls granted for the coming/current rest
 
         self.overlay = OverlayState(banner=BANNERS["waiting"], reps_planned=rx.reps, set_index=0,
                                     sets_planned=rx.sets, target=rx.targetAngle, joints=tuple(ex.joints))
@@ -258,6 +263,35 @@ class Flow:
             return False
         self._ready.set()
         return True
+
+    def request_rest(self, extra: float = REST_EXTEND_S) -> dict:
+        """The patient asks for more rest. In rest: the deadline moves by `extra`. In summary/await_pain before
+        a rest: the coming rest gets `extra` more. At most REST_EXTEND_MAX times per rest; never in a set."""
+        if self.halted or self.paused:
+            return {"accepted": False, "reason": "halted" if self.halted else "paused"}
+        if self.phase == "rest" and self._rest_deadline is not None:
+            if self._rest_extensions >= REST_EXTEND_MAX:
+                return {"accepted": False, "reason": "limit"}
+            self._rest_extensions += 1
+            self._rest_deadline += extra                 # the rest loop re-reads the deadline when it wakes
+            return {"accepted": True, "restSecondsLeft": round(max(0.0, self._rest_deadline - self.loop_time()))}
+        if self.phase in ("summary", "await_pain"):
+            if self.set_index >= self.rx.sets:
+                return {"accepted": False, "reason": "last set: no rest follows"}
+            if self._rest_extensions >= REST_EXTEND_MAX:
+                return {"accepted": False, "reason": "limit"}
+            self._rest_extensions += 1
+            self._rest_extra += extra
+            return {"accepted": True, "restSeconds": round(self.t.rest + self._rest_extra)}
+        return {"accepted": False, "reason": self.phase}
+
+    def _pos_ids(self) -> list[str]:
+        limb = "pos.leg_in_frame" if "knee" in self.ex.joints else "pos.arm_in_frame"
+        return ["pos.front" if self.ex.cameraView == "front" else "pos.side", limb]
+
+    def instruction_ids(self) -> list[str]:
+        """The exercise's positioning instruction clips (camera view + limb in frame)."""
+        return self._pos_ids()
 
     def progress(self) -> dict:
         """Numbers the live coach may quote: Flow and RepEngine state only, never estimates."""
@@ -423,8 +457,7 @@ class Flow:
         self.pose.enabled = True
         self._positioned.clear()
         self._visible_since = None
-        limb = "pos.leg_in_frame" if "knee" in self.ex.joints else "pos.arm_in_frame"
-        self.speaker.say_ids(["pos.front" if self.ex.cameraView == "front" else "pos.side", limb], "prompt")
+        self.speaker.say_ids(self._pos_ids(), "prompt")
         waited = 0.0
         while not self._positioned.is_set() and waited < self.t.positioning_max:
             step = min(self.t.positioning_prompt, self.t.positioning_max - waited)
@@ -441,6 +474,7 @@ class Flow:
 
     async def _countdown(self, idx: int) -> None:
         self.set_index = idx
+        self._rest_extra, self._rest_extensions = 0.0, 0         # request_rest budget is per rest
         await self._enter("countdown")
         self.overlay = replace(self.overlay, reps=0, rep_peak=None)
         self.speaker.say_ids(["cd.ready", "count.03", "count.02", "count.01", "cd.start"], "prompt")
@@ -536,7 +570,8 @@ class Flow:
         self._ready.clear()
         await self._enter("rest")
         self.speaker.say_ids(["set.rest"], "prompt")
-        self._rest_deadline = self.loop_time() + self.t.rest
+        self._rest_deadline = self.loop_time() + self.t.rest + self._rest_extra
+        self._rest_extra = 0.0
         try:                                                     # interruptible: ready_to_continue / halt
             while not self._ready.is_set():
                 left = self._rest_deadline - self.loop_time()

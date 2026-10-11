@@ -37,7 +37,7 @@ created by `npm run db:seed -- --demo`, which also adds 5 past sessions so the R
 
 **Network**
 - [ ] Both devices are on the same reliable network (a phone hotspot as backup). Venue Wi-Fi with a captive portal is not acceptable.
-- [ ] The patient link opens over **HTTPS** (deployed domain or ngrok). Camera access fails on plain HTTP.
+- [ ] The patient link opens over **HTTPS** at https://physio.algon.tech. Camera access fails on plain HTTP.
 - [ ] `NEXT_PUBLIC_DEMO_MODE=true` on the demo deployment, so a replay fallback still updates the trend.
 
 **Sound and devices**

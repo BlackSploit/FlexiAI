@@ -14,7 +14,7 @@ def test_on_with_a_key_by_default():
     s = resolve_live_coach_settings({"OPENAI_API_KEY": "sk-test"})
     assert s.enabled and s.reason == "OPENAI_API_KEY set"
     assert (s.realtime_model, s.voice, s.video, s.set_listen, s.barge_in, s.partials) == \
-        ("gpt-realtime-2", "marin", False, True, False, False)
+        ("gpt-realtime-2", "marin", True, True, False, False)              # stills on by default
     assert (s.connect_timeout_s, s.vad_eagerness, s.speed, s.transcribe_lang) == (6.0, "medium", 0.95, "patient")
 
 
@@ -38,6 +38,8 @@ def test_empty_strings_mean_unset():
     s = resolve_live_coach_settings({**env, "OPENAI_API_KEY": "sk-test"})
     assert s.enabled and s.realtime_model == "gpt-realtime-2" and s.voice == "marin" and s.set_listen
     assert s.connect_timeout_s == 6.0 and s.speed == 0.95 and s.reasoning_effort is None
+    assert s.video and not s.partials                                    # empty == default
+    assert not resolve_live_coach_settings({"OPENAI_API_KEY": "k", "LIVE_COACH_VIDEO": "off"}).video
 
 
 def test_bad_numbers_and_choices_fall_back_to_defaults():
@@ -45,7 +47,7 @@ def test_bad_numbers_and_choices_fall_back_to_defaults():
                                      "LIVE_COACH_SPEED": "9", "LIVE_COACH_VAD_EAGERNESS": "eager",
                                      "LIVE_COACH_TRANSCRIBE_LANG": "malayalam!", "LIVE_COACH_VIDEO": "maybe"})
     assert (s.connect_timeout_s, s.speed, s.vad_eagerness, s.transcribe_lang, s.video) == \
-        (6.0, 0.95, "medium", "patient", False)
+        (6.0, 0.95, "medium", "patient", True)
     s = resolve_live_coach_settings({"OPENAI_API_KEY": "k", "LIVE_COACH_CONNECT_TIMEOUT_S": "nan"})
     assert s.connect_timeout_s == 6.0
 

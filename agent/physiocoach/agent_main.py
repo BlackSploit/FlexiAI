@@ -91,7 +91,7 @@ class LiveParts:
             edge=NoChatEdge(),
             llm=self.llm,
             agent_user=User(id=cfg.agentUserId, name="PhysioCoach"),
-            instructions=build_instructions(cfg),
+            instructions=build_instructions(cfg, video=settings.video),
             tts=tts,                                           # dropped by Agent in realtime mode (B8)
             processors=[pose],
         )
@@ -111,9 +111,9 @@ def build_live(cfg: SessionConfig, settings: LiveCoachSettings, pose: PoseProces
         return None
     # Realtime transcripts would otherwise be logged at INFO (patient speech in logs, H2).
     logging.getLogger("vision_agents.core.agents.inference.realtime_flow").setLevel(logging.WARNING)
-    log.info("live coach on (%s): model %s, voice %s, set_listen=%s, barge_in=%s, video=%s (stills: WP1b)",
+    log.info("live coach on (%s): model %s, voice %s, set_listen=%s, barge_in=%s, video stills=%s, partials=%s",
              settings.reason, settings.realtime_model, settings.voice, settings.set_listen, settings.barge_in,
-             settings.video)
+             settings.video, settings.partials)
     return live
 
 

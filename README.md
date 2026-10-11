@@ -211,7 +211,7 @@ headphones, mutes their speakers or sits in another room; otherwise the coach ca
 ## Local setup
 
 Prerequisites: Node 22, Docker Desktop (WSL2 backend on Windows), [uv](https://docs.astral.sh/uv/) for native
-Python work, ngrok (static domain), a Neon database and a Stream Video app.
+Python work, a Neon database and a Stream Video app. Production runs on Dokploy at https://physio.algon.tech.
 
 ### 1. Environment
 
@@ -228,8 +228,7 @@ recreate the worker: `docker compose up -d agent-worker`.
 | `DATABASE_URL` | Neon Postgres connection string |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret (≥ 32 random bytes) |
 | `BETTER_AUTH_URL` | Auth base URL, e.g. `http://localhost:3000` |
-| `NEXT_PUBLIC_APP_URL` | Public base URL used in patient join links (the ngrok URL when testing on a phone) |
-| `NGROK_DOMAIN` | Dev only: static ngrok domain without the scheme, used by `npm run dev:webhook` |
+| `NEXT_PUBLIC_APP_URL` | Public base URL used in patient join links: `http://localhost:3000` locally, `https://physio.algon.tech` in production |
 | `NEXT_PUBLIC_STREAM_VIDEO_API_KEY` | Stream API key (public) |
 | `STREAM_VIDEO_SECRET_KEY` | Stream API secret (server only) |
 | `STREAM_CALL_TYPE` | `default` until `physio_session` is created and verified |
@@ -294,12 +293,12 @@ docker compose up --build redis agent-worker    # worker on http://localhost:808
 docker compose exec agent-worker python -m physiocoach.devtools.check_openai     # optional: key + note model
 docker compose exec agent-worker python -m physiocoach.devtools.check_realtime   # optional: Live Coach session
 npm run dev                                     # web on http://localhost:3000
-npm run dev:webhook                             # ngrok tunnel on NGROK_DOMAIN (HTTPS)
 ```
 
-For a patient on a second device, the page must be served over HTTPS for camera access. Set
-`NEXT_PUBLIC_APP_URL=https://<NGROK_DOMAIN>`, then set the Stream dashboard webhook URL to
-`https://<NGROK_DOMAIN>/api/webhook`.
+Locally, test the patient side in a second browser window on the same laptop (cameras work on `localhost`).
+For a phone, use the deployed site: browsers only allow the camera over HTTPS, which Dokploy provides at
+https://physio.algon.tech (see [docs/DEPLOY_DOKPLOY.md](docs/DEPLOY_DOKPLOY.md)). The Stream webhook URL is
+`https://physio.algon.tech/api/webhook`.
 
 Optional: `npm run stream:call-type` previews the `physio_session` call type without changing anything (a dry run). Adding `-- --apply` creates it.
 
@@ -315,7 +314,6 @@ Optional: `npm run stream:call-type` previews the `physio_session` call type wit
 | `npm run db:generate` / `db:push` / `db:studio` | Drizzle schema tooling |
 | `npm run db:seed [-- --demo]` | Seed exercises, plus the demo patient and history if `--demo` is passed |
 | `npm run stream:call-type [-- --apply]` | Check, or create, the `physio_session` Stream call type |
-| `npm run dev:webhook` | ngrok tunnel for HTTPS and Stream webhooks |
 | `npm run dev:create-call` | Create a dev call and write `dev-session.json` for the worker scripts |
 
 ## Testing

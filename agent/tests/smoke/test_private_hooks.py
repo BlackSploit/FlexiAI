@@ -169,7 +169,7 @@ def test_openai_realtime_internals_we_override():
     assert "self.client.realtime.calls.create" in inspect.getsource(RTCManager._exchange_sdp)
 
 
-async def test_live_coach_realtime_constructs_and_registers_five_tools(openai_env):
+async def test_live_coach_realtime_constructs_and_registers_seven_tools(openai_env):
     from vision_agents.plugins.openai.tool_utils import convert_tools_to_openai_format
 
     from physiocoach.call.live_coach import LiveCoach
@@ -180,7 +180,8 @@ async def test_live_coach_realtime_constructs_and_registers_five_tools(openai_en
     assert llm.realtime_session["type"] == "realtime" and llm.realtime_session["audio"]["output"]["voice"] == "marin"
     assert llm.rtc.send_video is False and llm.rtc.pc is not None and llm.rtc.data_channel is None
     names = register_tools(llm, coach)
-    assert len(names) == 5 and sorted(llm.function_registry.list_functions()) == sorted(names)
+    assert len(names) == 7 and sorted(llm.function_registry.list_functions()) == sorted(names)
+    assert {"request_rest", "repeat_instructions"} <= set(names)
     tools = convert_tools_to_openai_format(llm.get_available_functions(), for_realtime=True)
     assert {t["name"] for t in tools} == set(names) and all("strict" not in t for t in tools)
     out = await llm.call_function("report_pain", {"score": 3})
@@ -331,7 +332,7 @@ async def test_agent_main_builds_live_mode_and_falls_back_on_any_error(openai_en
     assert agent_main.build_live(cfg, resolve_live_coach_settings({}), pose, SilentTTS()) is None
     live = agent_main.build_live(cfg, resolve_live_coach_settings({"OPENAI_API_KEY": "k"}), pose, SilentTTS())
     assert live is not None and type(live.agent).__name__ == "CoachAgent" and live.coach.port is live.llm
-    assert len(live.tools) == 5 and live.facade.edge is live.agent.edge          # facade delegates
+    assert len(live.tools) == 7 and live.facade.edge is live.agent.edge          # facade delegates
     await live.llm.close()
 
     def broken(*a, **kw):

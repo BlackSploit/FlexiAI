@@ -14,11 +14,17 @@ and short replies after tool calls. Everything here is gated locally, reading Fl
 * on_halt                        called synchronously from Flow.halt (B5): latch, gates closed, cancel.
 * ResponseScheduler              at most one response in flight; requests coalesce (B11).
 
+* stills (WP1b, D5)              with LIVE_COACH_VIDEO on (default), ONE small JPEG of the annotated tile is
+  added to the conversation when the patient starts an (unswallowed) turn and with the rest cue; only after
+  consent, only in conversational phases, at most one per STILL_MIN_INTERVAL_S, never over STILL_MAX_B64
+  (H1). No continuous video track (send_video=False, M9) and never a response.create for a still.
+
 `LiveCoachTools` are the model's tools; `CoachFacade` puts the coach in front of the real agent so every
 outgoing client event is observed (before it is sent, B5) and clips bypass the silent `agent.say()`.
 """
 
 import asyncio
+import base64
 import logging
 import math
 import re
@@ -28,6 +34,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Optional, Protocol
 
+from ..core import phrases
 from . import voice_safety
 
 log = logging.getLogger(__name__)
@@ -43,6 +50,10 @@ REPLY_WAIT_S = 5.0              # a tool reply waits this long for the Speaker t
 PAIN_DEDUPE_S = 10.0
 MAX_FAILED_RESPONSES = 3
 TRANSCRIPT_MAX = 400
+PARTIAL_MIN_S = 1.0             # LIVE_COACH_PARTIALS: at most one partial pc.transcript per second (H3)
+STILL_MIN_INTERVAL_S = 4.0      # at most one camera still every 4 s
+STILL_WIDTH, STILL_QUALITY = 384, 60
+STILL_MAX_B64 = 48_000          # skip a still whose base64 is larger (data-channel message size, H1)
 HARMLESS_ERROR_CODES = frozenset({
     "conversation_already_has_active_response", "response_cancel_not_active", "item_not_found",
     "invalid_value_item_not_found", "item_truncate_invalid_item_id",
@@ -62,7 +73,7 @@ class LiveCoachSettings:
     warn: bool = False                              # e.g. LIVE_COACH=on without a key
     realtime_model: str = "gpt-realtime-2"          # the plugin default (vision-agents-plugins-openai 0.6.9)
     voice: str = "marin"
-    video: bool = False                             # stills are WP1b; send_video stays False regardless
+    video: bool = True                              # stills (WP1b, D5); send_video stays False regardless
     set_listen: bool = True
     barge_in: bool = False
     partials: bool = False
@@ -132,7 +143,7 @@ def resolve_live_coach_settings(env: Mapping[str, str]) -> LiveCoachSettings:
         enabled=enabled, reason=reason, warn=warn,
         realtime_model=_env(env, "OPENAI_REALTIME_MODEL") or "gpt-realtime-2",
         voice=_env(env, "OPENAI_REALTIME_VOICE") or "marin",
-        video=_flag(env, "LIVE_COACH_VIDEO", False),
+        video=_flag(env, "LIVE_COACH_VIDEO", True),
         set_listen=_flag(env, "LIVE_COACH_SET_LISTEN", True),
         barge_in=_flag(env, "LIVE_COACH_BARGE_IN", False),
         partials=_flag(env, "LIVE_COACH_PARTIALS", False),
@@ -207,6 +218,17 @@ def build_set_update(settings: LiveCoachSettings, *, in_set: bool, lang: Optiona
 def system_item(text: str) -> dict:
     return {"type": "conversation.item.create",
             "item": {"type": "message", "role": "system", "content": [{"type": "input_text", "text": text}]}}
+
+
+def image_item(jpeg_b64: str) -> dict:
+    """One camera still as a user message (openai 2.x RealtimeConversationItemUserMessageParam: content type
+    "input_image" with a data-URI image_url, PNG or JPEG). Creating an item never starts a response."""
+    return {"type": "conversation.item.create",
+            "item": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "[CAMERA STILL] annotated camera tile, for posture "
+                                  "and position only"},
+                                 {"type": "input_image", "image_url": f"data:image/jpeg;base64,{jpeg_b64}",
+                                  "detail": "low"}]}}
 
 
 def lang_of(text: str) -> Optional[str]:
@@ -311,6 +333,8 @@ class CoachStats:
     local_flushes: int = 0
     trips: int = 0
     spotted: list[str] = field(default_factory=list)
+    stills: list[str] = field(default_factory=list)          # why each still was sent ("turn" / "rest")
+    stills_skipped: int = 0                                  # over STILL_MAX_B64
 
 
 class LiveCoach:
@@ -344,7 +368,11 @@ class LiveCoach:
         self._rest_cued: set[int] = set()
         self._coach_text: dict[str, str] = {}
         self._coach_checked: dict[str, int] = {}
+        self._coach_tripped: set[str] = set()       # items already cut: never re-checked or captioned
         self._pain_seen: dict[tuple[int, int], float] = {}
+        self._still_at = -1e9
+        self._partial_at = -1e9
+        self._user_partial: dict[str, str] = {}
         self._out: deque[dict] = deque()
         self._out_wake: Optional[asyncio.Event] = None
         self._sender: Optional[asyncio.Task] = None
@@ -555,6 +583,8 @@ class LiveCoach:
                 return self.on_user_speech_started()
             if et in ("input_audio_buffer.speech_stopped", "input_audio_buffer.committed"):
                 self.on_user_committed()
+            elif et == "conversation.item.input_audio_transcription.delta":
+                self.on_user_delta(str(ev.get("item_id") or "u"), str(ev.get("delta") or ""))
             elif et == "conversation.item.input_audio_transcription.completed":
                 self.on_user_transcript(str(ev.get("item_id") or uuid.uuid4().hex), str(ev.get("transcript") or ""))
             elif et == "response.created":
@@ -586,6 +616,7 @@ class LiveCoach:
             self.user_speaking, self._user_at = True, self._now()
             self._set_rt("idle")                     # the plugin interrupts the coach (barge-in on coach only)
             self._update_voice()
+            self.maybe_send_still("turn")            # lands before the patient's audio item is committed
         return swallow
 
     def on_user_committed(self) -> None:
@@ -656,8 +687,56 @@ class LiveCoach:
         except Exception:  # noqa: BLE001
             return False
 
+    # -------------------------------------------------------------- camera stills (D5)
+    def still_allowed(self) -> bool:
+        """LIVE_COACH_VIDEO on, coach up, consent given and a conversational phase (never countdown/set/halted)."""
+        return bool(self.settings.video and self.up and self.pose is not None and self._conversational())
+
+    def maybe_send_still(self, why: str) -> bool:
+        """Attach ONE still of the annotated tile to the conversation. Never raises, never asks for a response."""
+        try:
+            if not self.still_allowed():
+                return False
+            now = self._now()
+            if now - self._still_at < STILL_MIN_INTERVAL_S:
+                return False
+            grab = getattr(self.pose, "latest_jpeg", None)
+            jpeg = grab(width=STILL_WIDTH, quality=STILL_QUALITY) if callable(grab) else None
+            if not jpeg:
+                return False
+            b64 = base64.b64encode(jpeg).decode("ascii")
+            self._still_at = now                     # an oversized frame also waits out the interval
+            if len(b64) > STILL_MAX_B64:
+                self.stats.stills_skipped += 1
+                return False
+            self.stats.stills.append(why)
+            self._enqueue(image_item(b64))
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.debug("still failed: %s", e)
+            return False
+
     # -------------------------------------------------------------- transcripts, spotter, tripwire
+    def _partial_ok(self) -> bool:
+        if not self.settings.partials:
+            return False
+        now = self._now()
+        if now - self._partial_at < PARTIAL_MIN_S:
+            return False
+        self._partial_at = now
+        return True
+
+    def on_user_delta(self, item_id: str, delta: str) -> None:
+        """LIVE_COACH_PARTIALS only: partial user captions (rate-limited). The spotter runs on finals only."""
+        if not self.settings.partials or not delta:
+            return
+        text = self._user_partial.get(item_id, "") + delta
+        self._user_partial[item_id] = text
+        if self.flow is not None and self.flow.consent_given and text.strip() and self._partial_ok():
+            self._transcript("user", item_id, text.strip(), final=False)
+
     def on_user_transcript(self, turn_id: str, text: str) -> None:
+        self._user_partial.pop(turn_id, None)
         text = text.strip()
         if not text:
             return
@@ -678,7 +757,7 @@ class LiveCoach:
             await self.tools.report_symptom(kind)
 
     def on_coach_delta(self, item_id: str, delta: str) -> None:
-        if not delta:
+        if not delta or item_id in self._coach_tripped:
             return
         text = self._coach_text.get(item_id, "") + delta
         self._coach_text[item_id] = text
@@ -687,13 +766,21 @@ class LiveCoach:
         if ends:
             upto = ends[-1]
             if self._check_sentences(text[checked:upto]):
+                self._coach_tripped.add(item_id)
                 return
             self._coach_checked[item_id] = upto
+            # Partial coach captions: only checked whole sentences, only while the reply is audible.
+            if (self.settings.partials and not self.suppress and self._conversational()
+                    and text[:upto].strip() and self._partial_ok()):
+                self._transcript("coach", item_id, text[:upto].strip(), final=False)
 
     def on_coach_done(self, item_id: str, transcript: str) -> None:
         text = transcript or self._coach_text.get(item_id, "")
         checked = self._coach_checked.pop(item_id, 0)
         self._coach_text.pop(item_id, None)
+        if item_id in self._coach_tripped:
+            self._coach_tripped.discard(item_id)
+            return
         tripped = self._check_sentences(text[checked:]) if len(text) > checked else False
         if tripped or self.suppress or not self._conversational() or not text.strip():
             return
@@ -717,9 +804,9 @@ class LiveCoach:
         self._state_item("correction: the last reply was cut because it touched medicines, diagnosis or the "
                          "prescription. Do not repeat it. For such questions use the exact redirect line.")
 
-    def _transcript(self, role: str, turn_id: str, text: str) -> None:
+    def _transcript(self, role: str, turn_id: str, text: str, final: bool = True) -> None:
         payload = envelope("pc.transcript", role=role, turnId=(turn_id or uuid.uuid4().hex)[:64],
-                           text=text[:TRANSCRIPT_MAX], final=True)
+                           text=text[:TRANSCRIPT_MAX], final=final)
         lang = lang_of(text)
         if lang:
             payload["lang"] = lang
@@ -792,6 +879,7 @@ class LiveCoach:
                 or self._speaker_busy()):
             return
         self._rest_cued.add(set_index)
+        self.maybe_send_still("rest")
         self._enqueue(system_item(
             "[COACH CUE] The set has ended and the patient is resting. In one or two short sentences, give "
             "warm feedback grounded only in the [STATE] numbers of the last set. Do not count and do not "
@@ -986,6 +1074,37 @@ class LiveCoachTools:
             return {"accepted": True, "_no_reply": True}
         return {"accepted": False, "reason": f.phase}
 
+    async def request_rest(self, **_: Any) -> dict:
+        """More rest: in rest the deadline moves; in summary/await_pain the coming rest grows (Flow caps it)."""
+        if not self._ready():
+            return {"error": "not_ready"}
+        f = self.coach.flow
+        if f.phase in ("countdown", "set"):
+            return {"accepted": False,
+                    "advice": "stop moving; the set pauses by itself after 20 s; say stop to end"}
+        return f.request_rest()
+
+    async def repeat_instructions(self, **_: Any) -> dict:
+        """Replay the positioning instruction clips. Outside countdown/set only; the clip itself is the reply."""
+        if not self._ready():
+            return {"error": "not_ready"}
+        c, f = self.coach, self.coach.flow
+        if f.halted or f.paused or f.phase not in CONVERSATIONAL:
+            return {"played": False, "reason": "halted" if f.halted else f.phase}
+        ids = list(f.instruction_ids())
+        c.speaker.say_ids(ids, "prompt")
+        return {"played": True, "text_en": _english(ids), "_no_reply": True}
+
+
+def _english(ids: list[str]) -> str:
+    out = []
+    for i in ids:
+        try:
+            out.append(phrases.get(i).en)
+        except KeyError:
+            pass
+    return " ".join(out)
+
 
 TOOL_SPECS: tuple[tuple[str, str, dict], ...] = (
     ("get_progress", "Live exercise progress from the counting system. The only source of numbers you may quote.",
@@ -1001,6 +1120,12 @@ TOOL_SPECS: tuple[tuple[str, str, dict], ...] = (
     ("request_stop", "The patient asks to stop the exercise. Stops the session and alerts the physiotherapist.",
      {"type": "object", "properties": {}, "required": [], "additionalProperties": False}),
     ("ready_to_continue", "During rest, the patient says they are ready: end the rest early.",
+     {"type": "object", "properties": {}, "required": [], "additionalProperties": False}),
+    ("request_rest", "The patient asks for more rest. Valid during rest or right after a set (adds 30 seconds, at "
+     "most twice). Not during a set.",
+     {"type": "object", "properties": {}, "required": [], "additionalProperties": False}),
+    ("repeat_instructions", "The patient asks how to position or what to do: replays the recorded instructions. "
+     "Not during the countdown or a set. Stay silent while they play.",
      {"type": "object", "properties": {}, "required": [], "additionalProperties": False}),
 )
 

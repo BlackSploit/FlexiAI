@@ -28,3 +28,14 @@ def test_redirect_lines_do_not_trip_the_guardrail():
     assert not tripwire_hit(REDIRECT_ML)
     assert not tripwire_hit("I can't advise on medicine; please ask your physiotherapist.")    # H4
     assert tripwire_hit("You could take a paracetamol for that.")
+
+
+@pytest.mark.parametrize("lang", ["ml", "en"])
+def test_prompt_with_video_explains_stills_and_stays_small(lang):
+    cfg = config(patient={"id": "pat", "name": "P", "lang": lang})
+    off, on = build_instructions(cfg), build_instructions(cfg, video=True)
+    assert "[CAMERA STILL]" not in off and "[CAMERA STILL]" in on
+    assert "Never count repetitions or estimate" in on and "[STATE]" in on
+    assert len(on.encode("utf-8")) <= MAX_BYTES and "@" not in on
+    for tool in ("request_rest", "repeat_instructions"):
+        assert tool in off

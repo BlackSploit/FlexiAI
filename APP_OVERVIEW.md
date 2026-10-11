@@ -137,7 +137,6 @@ Note: Ask AI only uses the **summary**, not the full transcript, as its source o
 | Background jobs | **Inngest** |
 | Avatars | DiceBear (`bottts-neutral` for agents, `initials` for users) |
 | Misc | date-fns, humanize-duration, react-markdown, react-highlight-words, jsonl-parse-stringify, sonner (toasts), nanoid (IDs) |
-| Local webhook tunnel | ngrok (`npm run dev:webhook`) |
 
 ---
 
@@ -337,9 +336,9 @@ OPENAI_API_KEY                      OpenAI (Realtime + GPT-4o)
 2. Fill `.env`, then `npm run db:push` to create the tables.
 3. `npm run dev` (Next.js on :3000)
 4. `npx inngest-cli@latest dev` (Inngest dev server, so the summary job runs)
-5. `npm run dev:webhook` (ngrok tunnel; replace `[NGROK_STATIC_DOMAIN]` in `package.json`), then set the Stream dashboard webhook URL (Video and Chat) to `https://<domain>/api/webhook`.
+5. Deploy to Dokploy (docs/DEPLOY_DOKPLOY.md) and set the Stream dashboard webhook URL to `https://physio.algon.tech/api/webhook`.
 
-External accounts needed: **Neon**, **Stream** (Video + Chat), **OpenAI** (with Realtime access), **Inngest**, **ngrok**.
+External accounts needed: **Neon**, **Stream** (Video + Chat), **OpenAI** (with Realtime access), **Inngest**.
 
 ---
 

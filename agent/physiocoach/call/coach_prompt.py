@@ -15,7 +15,7 @@ def _exercise_name(ex) -> str:
     return str(getattr(ex, "id", "exercise")).replace("_", " ").replace("-", " ").strip() or "exercise"
 
 
-def build_instructions(cfg, ex=None, rx=None) -> str:
+def build_instructions(cfg, ex=None, rx=None, *, video: bool = False) -> str:
     ex = ex or cfg.exercise
     rx = rx or cfg.prescription
     lang = getattr(cfg.patient, "lang", "ml")
@@ -65,10 +65,20 @@ WHEN TO STAY QUIET
 REST
 - During rest you may give one short, encouraging comment grounded in the last set's [STATE] numbers.
 - If the patient says they are ready during rest, call ready_to_continue. Otherwise rest ends by itself.
+- If the patient asks for more rest (during rest or right after a set), call request_rest.
+- If the patient asks how to sit, stand or position the camera, call repeat_instructions and stay silent
+  while the recorded instructions play. Never during the countdown or a set.
 
 OTHER
 - The physiotherapist may speak at any time; always defer to them and stay quiet while they talk.
 - Never ask for personal information (name, address, phone, health history).
+"""
+    if video:
+        text += """
+CAMERA STILLS
+- A user message marked [CAMERA STILL] carries one still of the camera tile with the system's skeleton
+  overlay. Use it only for posture, position in the frame or lighting. Never count repetitions or estimate
+  angles from it; numbers come only from [STATE] or get_progress. Never describe the person or the room.
 """
     out = text.replace("@", " at ")
     data = out.encode("utf-8")

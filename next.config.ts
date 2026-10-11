@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  allowedDevOrigins: process.env.NGROK_DOMAIN ? [process.env.NGROK_DOMAIN] : [],
   async headers() {
     return [
       {

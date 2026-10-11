@@ -247,6 +247,7 @@ class LiveCoachRealtime(Realtime):
         self.coach.send_tool_output(call_id, self._sanitize_tool_output(public), reply)
 
     # ------------------------------------------------------------------ video (D5, M9): mandatory no-ops
+    # No continuous video: stills go in as conversation items (LiveCoach.maybe_send_still -> send_event).
     async def watch_video_track(self, track, shared_forwarder=None) -> None:
         return None
 
@@ -255,7 +256,7 @@ class LiveCoachRealtime(Realtime):
 
 
 def register_tools(llm: Realtime, coach: LiveCoach) -> list[str]:
-    """Five explicit-schema async tools; register(...) returns a decorator that must be applied (H10)."""
+    """Seven explicit-schema async tools (D6); register(...) returns a decorator that must be applied (H10)."""
     names = []
     for name, description, schema in TOOL_SPECS:
         method = getattr(coach.tools, name)
