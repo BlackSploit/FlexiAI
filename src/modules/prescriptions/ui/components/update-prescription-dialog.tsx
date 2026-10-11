@@ -16,8 +16,8 @@ export const UpdatePrescriptionDialog = ({
 }: UpdatePrescriptionDialogProps) => {
   return (
     <ResponsiveDialog
-      title="Edit Prescription"
-      description="Edit the prescription"
+      title="Edit prescription"
+      description="Changes apply to the next guided session."
       open={open}
       onOpenChange={onOpenChange}
     >

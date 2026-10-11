@@ -1,6 +1,5 @@
 "use client";
 
-import { LoaderIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Call,
@@ -13,7 +12,9 @@ import {
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 
 import type { CallInfo, CallUser } from "../../types";
+import { S } from "../../strings";
 import { CallUI } from "./call-ui";
+import { BrandedLoading } from "./call-brand";
 
 interface Props {
   info: CallInfo;
@@ -22,11 +23,7 @@ interface Props {
   tokenProvider: () => Promise<string>;
 };
 
-export const Loading = () => (
-  <div className="flex h-full items-center justify-center bg-radial from-sidebar-accent to-sidebar">
-    <LoaderIcon className="size-6 animate-spin text-white" />
-  </div>
-);
+export const Loading = () => <BrandedLoading label={S.connecting} />;
 
 export const CallConnect = ({ info, user, tokenProvider }: Props) => {
   // The provider identity changes on every render of the parent; keep the latest in a ref so the client

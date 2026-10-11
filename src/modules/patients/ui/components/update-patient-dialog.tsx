@@ -16,8 +16,8 @@ export const UpdatePatientDialog = ({
 }: UpdatePatientDialogProps) => {
   return (
     <ResponsiveDialog
-      title="Edit Patient"
-      description="Edit the patient details"
+      title="Edit patient"
+      description="Update contact details and the language the coach uses."
       open={open}
       onOpenChange={onOpenChange}
     >

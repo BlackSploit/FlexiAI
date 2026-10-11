@@ -7,6 +7,7 @@ import { createTRPCRouter, physioProcedure } from "@/trpc/init";
 import { assertOwnPatient } from "@/modules/patients/server/procedures";
 
 import { adherencePct, weeklySummaryRules } from "../lib/weekly-summary-rules";
+import { generateWeeklySummary } from "./generate-weekly-summary";
 
 /** Weeks start Monday 00:00 Asia/Kolkata; stored timestamps are UTC wall time. */
 const IST = (col: string) => sql.raw(`((${col}) at time zone 'UTC') at time zone 'Asia/Kolkata'`);
@@ -47,6 +48,17 @@ async function weekNumbers(physioId: string, patientId: string, weekStart: strin
     avgPeak: num(row.avgPeak), avgPeakLastWeek: num(row.avgPeakLastWeek), bestPeak: num(row.bestPeak),
     maxPain: num(row.maxPain), fastRepPct: num(row.fastRepPct), targetAngle: num(row.targetAngle),
     weekStart: String(row.weekStart),
+  };
+}
+
+/** Live numbers plus the derived adherence % and ROM change vs last week. */
+async function weekSummaryBase(physioId: string, patientId: string, weekStart: string | null | undefined, includeReplay: boolean) {
+  const n = await weekNumbers(physioId, patientId, weekStart, includeReplay);
+  return {
+    ...n,
+    adherencePct: adherencePct(n.sessionsDone, n.sessionsPlanned),
+    avgPeakDeltaVsLastWeek: n.avgPeak !== null && n.avgPeakLastWeek !== null
+      ? Math.round((n.avgPeak - n.avgPeakLastWeek) * 10) / 10 : null,
   };
 }
 
@@ -148,16 +160,33 @@ export const analyticsRouter = createTRPCRouter({
     .input(z.object({ patientId: z.string(), weekStart: weekInput, includeReplay: z.boolean().default(false) }))
     .query(async ({ ctx, input }) => {
       await assertOwnPatient(ctx.auth.user.id, input.patientId);
-      const n = await weekNumbers(ctx.auth.user.id, input.patientId, input.weekStart, input.includeReplay);
-      const base = {
-        ...n,
-        adherencePct: adherencePct(n.sessionsDone, n.sessionsPlanned),
-        avgPeakDeltaVsLastWeek: n.avgPeak !== null && n.avgPeakLastWeek !== null
-          ? Math.round((n.avgPeak - n.avgPeakLastWeek) * 10) / 10 : null,
-      };
+      const base = await weekSummaryBase(ctx.auth.user.id, input.patientId, input.weekStart, input.includeReplay);
       const [stored] = await db.select().from(weeklySummaries)
-        .where(and(eq(weeklySummaries.patientId, input.patientId), eq(weeklySummaries.weekStart, n.weekStart)));
-      if (stored) return { ...base, textEn: stored.textEn, textMl: stored.textMl, source: stored.source };
-      return { ...base, ...weeklySummaryRules(n), source: "rules" as const };
+        .where(and(eq(weeklySummaries.patientId, input.patientId), eq(weeklySummaries.weekStart, base.weekStart)));
+      if (stored) {
+        return { ...base, textEn: stored.textEn, textMl: stored.textMl, source: stored.source, generatedAt: stored.createdAt };
+      }
+      return { ...base, ...weeklySummaryRules(base), source: "rules" as const, generatedAt: null };
+    }),
+
+  /** LLM summary with rule fallback (§8.9); upserts weekly_summaries for that patient-week (live sessions only unless includeReplay, DEV-14). */
+  generateWeeklySummary: physioProcedure
+    .input(z.object({ patientId: z.string(), weekStart: weekInput, includeReplay: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwnPatient(ctx.auth.user.id, input.patientId);
+      const base = await weekSummaryBase(ctx.auth.user.id, input.patientId, input.weekStart, input.includeReplay);
+      const llm = await generateWeeklySummary(base);
+      const text = llm ?? weeklySummaryRules(base);
+      const source = llm ? ("llm" as const) : ("rules" as const);
+      const update = {
+        sessionsDone: base.sessionsDone, sessionsPlanned: base.sessionsPlanned, adherencePct: base.adherencePct,
+        avgPeak: base.avgPeak, bestPeak: base.bestPeak, maxPain: base.maxPain,
+        textEn: text.textEn, textMl: text.textMl, source,
+      };
+      await db.insert(weeklySummaries).values({ patientId: input.patientId, weekStart: base.weekStart, ...update }).onConflictDoUpdate({
+        target: [weeklySummaries.patientId, weeklySummaries.weekStart],
+        set: { ...update, createdAt: new Date() },
+      });
+      return { textEn: text.textEn, textMl: text.textMl, source };
     }),
 });

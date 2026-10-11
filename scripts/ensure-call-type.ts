@@ -15,6 +15,9 @@ const NAME = "physio_session";
 const apply = process.argv.includes("--apply");
 
 const BASE_GRANTS: Record<string, string[]> = {
+  // Stream adds a `guest` role with join/send rights by default; anyone holding the public API key can mint a
+  // guest user, so it gets nothing here.
+  guest: [],
   user: ["read-call"],
   call_member: ["read-call", "join-call", "send-audio", "send-video"],
   admin: ["read-call", "join-call", "send-audio", "send-video", "end-call", "update-call-member"],

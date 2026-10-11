@@ -10,7 +10,8 @@ const Page = async () => {
     headers: await headers(),
   });
 
-  if (!!session) {
+  // Only physios are bounced home; any other signed-in role would loop via the role router.
+  if (session?.user.role === "physio") {
     redirect("/");
   }
 

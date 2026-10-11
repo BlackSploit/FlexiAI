@@ -5,11 +5,10 @@ import { ErrorBoundary } from "react-error-boundary";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 import { auth } from "@/lib/auth";
-import { ErrorState } from "@/components/error-state";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 import { Loading } from "@/modules/call/ui/components/call-connect";
-import { PhysioCallView } from "@/modules/call/ui/views/call-view";
+import { PhysioCallErrorState, PhysioCallView } from "@/modules/call/ui/views/call-view";
 
 interface Props {
   params: Promise<{ sessionId: string }>;
@@ -27,7 +26,7 @@ const Page = async ({ params }: Props) => {
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       <Suspense fallback={<Loading />}>
-        <ErrorBoundary fallback={<ErrorState title="Session not found" description="It may belong to another physiotherapist." />}>
+        <ErrorBoundary fallback={<PhysioCallErrorState title="Session not found" description="It may have been removed, or it belongs to another physiotherapist." />}>
           <PhysioCallView sessionId={sessionId} />
         </ErrorBoundary>
       </Suspense>

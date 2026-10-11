@@ -20,8 +20,12 @@ from .scoring import SetMetrics
 
 log = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-5-5"
+MODEL = "claude-sonnet-5-5"   # the user's choice (§8.9); NOTE_LLM_MODEL overrides it
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+def _model() -> str:
+    return os.getenv("NOTE_LLM_MODEL") or MODEL
 
 
 def _timeout_s() -> float:
@@ -128,7 +132,7 @@ def validate_note(note: NoteOut, metrics: dict[str, Any]) -> None:
 
 async def _call_llm(metrics: dict[str, Any]) -> NoteOut:
     req: dict[str, Any] = dict(
-        model=MODEL, max_tokens=600, system=SYSTEM,
+        model=_model(), max_tokens=600, system=SYSTEM,
         thinking={"type": "between_tools"},                  # thinking off on Sonnet 5.5; "disabled" is a 400
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": NOTE_SCHEMA}},
         messages=[{"role": "user", "content": json.dumps(metrics, ensure_ascii=False)}],
@@ -141,7 +145,9 @@ async def _call_llm(metrics: dict[str, Any]) -> NoteOut:
         resp = await client.messages.create(**req)
     if resp.stop_reason != "end_turn":                       # "refusal", "max_tokens", ... -> rules
         raise ValueError(f"stop_reason={resp.stop_reason}")
-    text = next(b.text for b in resp.content if b.type == "text")
+    text = next((b.text for b in resp.content if b.type == "text"), None)
+    if text is None:
+        raise ValueError("no text block")
     return NoteOut.model_validate_json(text)
 
 

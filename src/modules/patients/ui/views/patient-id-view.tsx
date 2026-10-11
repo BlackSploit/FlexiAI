@@ -1,39 +1,49 @@
 "use client";
 
+import Link from "next/link";
 import { toast } from "sonner";
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MailIcon, PhoneIcon, VideoIcon } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import {
+  ActivityIcon,
+  ChevronRightIcon,
+  ClipboardListIcon,
+  ClipboardPlusIcon,
+  HeartPulseIcon,
+  NotebookPenIcon,
+  SparklesIcon,
+  TrendingUpIcon,
+  VideoIcon,
+} from "lucide-react";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 
 import { useTRPC } from "@/trpc/client";
-import { Badge } from "@/components/ui/badge";
+import { PAIN_ALERT_THRESHOLD } from "@/constants";
+import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/hooks/use-confirm";
-import { DataTable } from "@/components/data-table";
-import { ErrorState } from "@/components/error-state";
-import { LoadingState } from "@/components/loading-state";
-import { GeneratedAvatar } from "@/components/generated-avatar";
 import { RomTrendChart } from "@/modules/analytics/ui/components/rom-trend-chart";
 import { WeeklySummaryCard } from "@/modules/analytics/ui/components/weekly-summary-card";
 import { PhysioNotes } from "@/modules/notes/ui/components/physio-notes";
-import { columns as sessionColumns } from "@/modules/sessions/ui/components/columns";
 import { StartSessionButton } from "@/modules/prescriptions/ui/components/start-session-button";
 import { NewPrescriptionDialog } from "@/modules/prescriptions/ui/components/new-prescription-dialog";
 
-import { isPlaceholderEmail } from "../../schemas";
 import { UpdatePatientDialog } from "../components/update-patient-dialog";
 import { PatientIdViewHeader } from "../components/patient-id-view-header";
+import {
+  ActiveBadge,
+  DetailSkeleton,
+  EmptyPanel,
+  ErrorPanel,
+  InlineSkeleton,
+  SectionCard,
+  SessionList,
+  StatTile,
+} from "../components/ui-kit";
 
 interface Props {
   patientId: string;
 };
-
-const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="bg-white rounded-lg border p-4 flex flex-col gap-y-3">
-    <p className="font-medium">{title}</p>
-    {children}
-  </div>
-);
 
 export const PatientIdView = ({ patientId }: Props) => {
   const trpc = useTRPC();
@@ -51,6 +61,7 @@ export const PatientIdView = ({ patientId }: Props) => {
     trpc.patients.remove.mutationOptions({
       onSuccess: async () => {
         await queryClient.invalidateQueries(trpc.patients.getMany.queryOptions({}));
+        toast.success(`${data.name} was removed`);
         router.push("/patients");
       },
       onError: (error) => {
@@ -60,8 +71,8 @@ export const PatientIdView = ({ patientId }: Props) => {
   );
 
   const [RemoveConfirmation, confirmRemove] = useConfirm(
-    "Are you sure?",
-    `This removes ${data.name} and ${data.sessionCount} ${data.sessionCount === 1 ? "session" : "sessions"} with their results.`,
+    "Delete this patient?",
+    `This permanently removes ${data.name}, their prescriptions, notes and ${data.sessionCount} ${data.sessionCount === 1 ? "session" : "sessions"} with results. This cannot be undone.`,
   );
 
   const handleRemove = async () => {
@@ -70,83 +81,144 @@ export const PatientIdView = ({ patientId }: Props) => {
   };
 
   const contact = { name: data.name, phone: data.phone, email: data.email };
+  const activeRx = rx.data.items.filter((p) => p.active);
+  const inactiveRx = rx.data.items.filter((p) => !p.active);
+  const orderedRx = [...activeRx, ...inactiveRx];
+  const painHigh = data.latestPain !== null && data.latestPain >= PAIN_ALERT_THRESHOLD;
 
   return (
     <>
       <RemoveConfirmation />
       <UpdatePatientDialog open={editOpen} onOpenChange={setEditOpen} initialValues={data} />
       <NewPrescriptionDialog open={newRxOpen} onOpenChange={setNewRxOpen} defaultPatientId={patientId} />
-      <div className="flex-1 py-4 px-4 md:px-8 flex flex-col gap-y-4">
+      <div className="flex-1 px-4 py-6 md:px-8 flex flex-col gap-y-6">
         <PatientIdViewHeader
-          patientId={patientId}
-          patientName={data.name}
+          patient={data}
           onEdit={() => setEditOpen(true)}
           onNewPrescription={() => setNewRxOpen(true)}
           onRemove={handleRemove}
+          isRemoving={removePatient.isPending}
         />
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2 flex flex-col gap-4">
-            <div className="bg-white rounded-lg border p-4 flex flex-wrap items-center gap-4">
-              <GeneratedAvatar variant="initials" seed={data.name} className="size-12" />
-              <div className="flex-1 min-w-0">
-                <h2 className="text-2xl font-medium">{data.name}</h2>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                  {data.phone && <span className="flex items-center gap-1"><PhoneIcon className="size-3.5" />{data.phone}</span>}
-                  {data.email && !isPlaceholderEmail(data.email) && (
-                    <span className="flex items-center gap-1"><MailIcon className="size-3.5" />{data.email}</span>
-                  )}
-                  <span>{data.preferredLanguage === "ml" ? "Malayalam" : "English"}</span>
-                </div>
-              </div>
-              <Badge variant="outline" className="flex items-center gap-x-2 [&>svg]:size-4">
-                <VideoIcon className="text-blue-700" />
-                {data.sessionCount} {data.sessionCount === 1 ? "session" : "sessions"}
-              </Badge>
-            </div>
 
-            <Card title="Prescriptions">
-              {rx.data.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No prescriptions yet. Use the menu to add one.</p>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+          <StatTile label="Active plans" icon={ClipboardListIcon} value={data.activePrescriptionCount}
+            hint={inactiveRx.length > 0 ? `${inactiveRx.length} inactive` : "Prescribed exercises"} />
+          <StatTile label="Sessions" icon={VideoIcon} value={data.sessionCount} hint="Guided calls so far" />
+          <StatTile label="Last session" icon={ActivityIcon}
+            value={data.lastSessionAt ? formatDistanceToNow(new Date(data.lastSessionAt)) : "—"}
+            hint={data.lastSessionAt ? "ago" : "No sessions yet"} />
+          <StatTile label="Latest pain" icon={HeartPulseIcon}
+            value={data.latestPain === null ? "—" : (
+              <span className={painHigh ? "text-rose-600 dark:text-rose-400" : undefined}>
+                {data.latestPain}<span className="text-sm font-normal text-muted-foreground">/10</span>
+              </span>
+            )}
+            hint={data.latestPain === null ? "Not reported" : painHigh ? "Above alert threshold" : "Patient-reported"} />
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="flex flex-col gap-6 lg:col-span-2 min-w-0">
+            <SectionCard
+              title="Prescriptions"
+              description="Exercises the coach guides this patient through."
+              icon={ClipboardListIcon}
+              contentClassName={orderedRx.length ? "p-0" : undefined}
+              action={orderedRx.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setNewRxOpen(true)}>
+                  <ClipboardPlusIcon />
+                  <span className="hidden sm:inline">Add</span>
+                </Button>
+              )}
+            >
+              {orderedRx.length === 0 ? (
+                <EmptyPanel
+                  className="py-8"
+                  icon={ClipboardPlusIcon}
+                  title="No prescriptions yet"
+                  description="Choose an exercise, a target bend angle and reps. Then start a guided session from here."
+                  action={
+                    <Button onClick={() => setNewRxOpen(true)}>
+                      <ClipboardPlusIcon />
+                      New prescription
+                    </Button>
+                  }
+                />
               ) : (
-                <ul className="flex flex-col divide-y">
-                  {rx.data.items.map((p) => (
-                    <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <button className="text-left" onClick={() => router.push(`/prescriptions/${p.id}`)}>
-                        <p className="font-medium">{p.exercise.nameEn}
-                          {!p.active && <Badge variant="outline" className="ml-2">inactive</Badge>}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {p.targetAngle}° · {p.reps} × {p.sets} · ≥{p.minSecondsPerRep}s · {p.sessionsPerWeek}/week
-                        </p>
-                      </button>
-                      {p.active && <StartSessionButton size="sm" label="Start" prescriptionId={p.id} patient={contact} />}
+                <ul className="divide-y">
+                  {orderedRx.map((p) => (
+                    <li key={p.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                      <Link
+                        href={`/prescriptions/${p.id}`}
+                        className="group flex min-w-0 flex-1 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <ActivityIcon className="size-5" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate font-medium group-hover:underline">{p.exercise.nameEn}</span>
+                            <ActiveBadge active={p.active} />
+                          </div>
+                          <p lang="ml" className="font-ml truncate text-xs text-muted-foreground">{p.exercise.nameMl}</p>
+                          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                            Target {p.targetAngle}° · {p.reps} reps × {p.sets} {p.sets === 1 ? "set" : "sets"} · ≥{p.minSecondsPerRep}s/rep · {p.sessionsPerWeek}×/week
+                          </p>
+                        </div>
+                        <ChevronRightIcon className="hidden size-4 text-muted-foreground sm:block" aria-hidden />
+                      </Link>
+                      {p.active && (
+                        <div className="sm:pl-2">
+                          <StartSessionButton size="sm" label="Start session" prescriptionId={p.id} patient={contact} />
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
-            </Card>
+            </SectionCard>
 
-            <Card title="Range of motion (last 30 days)">
-              <Suspense fallback={<p className="text-sm text-muted-foreground">Loading chart…</p>}>
+            <SectionCard title="Range of motion" description="Average peak bend angle per session, last 30 days." icon={TrendingUpIcon}>
+              <Suspense fallback={<InlineSkeleton className="h-56" />}>
                 <RomTrendChart patientId={patientId} />
               </Suspense>
-            </Card>
+            </SectionCard>
 
-            <Card title="Recent sessions">
-              <DataTable data={sessions.data.items} columns={sessionColumns} onRowClick={(row) => router.push(`/sessions/${row.id}`)} />
-            </Card>
+            <SectionCard
+              title="Recent sessions"
+              description="The last 10 guided calls."
+              icon={VideoIcon}
+              action={sessions.data.total > sessions.data.items.length && (
+                <Button asChild size="sm" variant="ghost">
+                  <Link href={`/sessions?patientId=${patientId}`}>View all</Link>
+                </Button>
+              )}
+            >
+              {sessions.data.items.length === 0 ? (
+                <EmptyPanel
+                  className="py-8"
+                  icon={VideoIcon}
+                  title="No sessions yet"
+                  description={activeRx.length
+                    ? "Start a guided session from a prescription above. Results appear here when it ends."
+                    : "Add a prescription first, then start a guided session."}
+                />
+              ) : (
+                <SessionList items={sessions.data.items} />
+              )}
+            </SectionCard>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <Card title="Weekly summary">
-              <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+          <div className="flex flex-col gap-6 min-w-0">
+            <SectionCard title="This week" description="Progress summary you can share." icon={SparklesIcon}>
+              <Suspense fallback={<InlineSkeleton />}>
                 <WeeklySummaryCard patientId={patientId} />
               </Suspense>
-            </Card>
-            <Card title="Notes">
-              <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+            </SectionCard>
+            <SectionCard title="Physio notes" description="Private to you. Patients never see these." icon={NotebookPenIcon}>
+              <Suspense fallback={<InlineSkeleton className="h-28" />}>
                 <PhysioNotes patientId={patientId} />
               </Suspense>
-            </Card>
+            </SectionCard>
           </div>
         </div>
       </div>
@@ -155,19 +227,14 @@ export const PatientIdView = ({ patientId }: Props) => {
 };
 
 export const PatientIdViewLoading = () => {
-  return (
-    <LoadingState
-      title="Loading Patient"
-      description="This may take a few seconds"
-    />
-  );
+  return <DetailSkeleton />;
 };
 
 export const PatientIdViewError = () => {
   return (
-    <ErrorState
-      title="Error Loading Patient"
-      description="Something went wrong"
+    <ErrorPanel
+      title="Couldn’t load this patient"
+      description="The patient may have been removed, or the connection dropped. Go back to your patients or try again."
     />
   )
 }

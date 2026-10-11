@@ -15,8 +15,8 @@ export const NewPatientDialog = ({
 }: NewPatientDialogProps) => {
   return (
     <ResponsiveDialog
-      title="New Patient"
-      description="Add a patient to your list"
+      title="New patient"
+      description="Add someone you will prescribe home exercises to."
       open={open}
       onOpenChange={onOpenChange}
     >

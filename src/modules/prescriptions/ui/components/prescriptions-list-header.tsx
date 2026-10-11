@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { PlusIcon, SearchIcon, XCircleIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { useTRPC } from "@/trpc/client";
 import { DEFAULT_PAGE } from "@/constants";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CommandSelect } from "@/components/command-select";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { PageHeader } from "@/modules/patients/ui/components/ui-kit";
 import { PatientIdFilter } from "@/modules/patients/ui/components/patient-id-filter";
 
 import { NewPrescriptionDialog } from "./new-prescription-dialog";
@@ -26,47 +26,48 @@ export const PrescriptionsListHeader = () => {
   return (
     <>
       <NewPrescriptionDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
-      <div className="py-4 px-4 md:px-8 flex flex-col gap-y-4">
-        <div className="flex items-center justify-between">
-          <h5 className="font-medium text-xl">Prescriptions</h5>
-          <Button onClick={() => setIsDialogOpen(true)}>
+      <PageHeader
+        title="Prescriptions"
+        description="Home exercise plans with a target bend angle, reps and tempo. Start a guided session from any active plan."
+        action={
+          <Button onClick={() => setIsDialogOpen(true)} className="w-full sm:w-auto">
             <PlusIcon />
-            New Prescription
+            New prescription
           </Button>
-        </div>
-        <ScrollArea>
-          <div className="flex items-center gap-x-2 p-1">
-            <div className="relative">
-              <Input placeholder="Patient or exercise" className="h-9 bg-white w-[200px] pl-7" value={filters.search}
-                onChange={(e) => setFilters({ search: e.target.value, page: DEFAULT_PAGE })} />
-              <SearchIcon className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            </div>
-            <PatientIdFilter value={filters.patientId} onChange={(id) => setFilters({ patientId: id, page: DEFAULT_PAGE })} />
-            <CommandSelect
-              className="h-9"
-              placeholder="Exercise"
-              options={(exercises.data ?? []).map((e) => ({ id: e.id, value: e.id, children: e.nameEn }))}
-              value={filters.exerciseId}
-              onSelect={(id) => setFilters({ exerciseId: id, page: DEFAULT_PAGE })}
-            />
-            <CommandSelect
-              className="h-9"
-              placeholder="Active?"
-              options={[{ id: "true", value: "true", children: "Active" }, { id: "false", value: "false", children: "Inactive" }]}
-              value={filters.active === null ? "" : String(filters.active)}
-              onSelect={(v) => setFilters({ active: v === "true", page: DEFAULT_PAGE })}
-            />
-            {isAnyFilterModified && (
-              <Button variant="outline" size="sm"
-                onClick={() => setFilters({ search: "", patientId: "", exerciseId: "", active: null, page: DEFAULT_PAGE })}>
-                <XCircleIcon />
-                Clear
-              </Button>
-            )}
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-64">
+            <label htmlFor="rx-search" className="sr-only">Search by patient or exercise</label>
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input id="rx-search" type="search" placeholder="Search patient or exercise" className="h-10 bg-card pl-9"
+              value={filters.search}
+              onChange={(e) => setFilters({ search: e.target.value, page: DEFAULT_PAGE })} />
           </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      </div>
+          <PatientIdFilter value={filters.patientId} onChange={(id) => setFilters({ patientId: id, page: DEFAULT_PAGE })} />
+          <CommandSelect
+            className="h-10 bg-card"
+            placeholder="Exercise"
+            options={(exercises.data ?? []).map((e) => ({ id: e.id, value: e.id, children: e.nameEn }))}
+            value={filters.exerciseId}
+            onSelect={(id) => setFilters({ exerciseId: id, page: DEFAULT_PAGE })}
+          />
+          <CommandSelect
+            className="h-10 bg-card"
+            placeholder="Status"
+            options={[{ id: "true", value: "true", children: "Active" }, { id: "false", value: "false", children: "Inactive" }]}
+            value={filters.active === null ? "" : String(filters.active)}
+            onSelect={(v) => setFilters({ active: v === "true", page: DEFAULT_PAGE })}
+          />
+          {isAnyFilterModified && (
+            <Button variant="ghost" size="sm" className="text-muted-foreground"
+              onClick={() => setFilters({ search: "", patientId: "", exerciseId: "", active: null, page: DEFAULT_PAGE })}>
+              <XIcon />
+              Clear filters
+            </Button>
+          )}
+        </div>
+      </PageHeader>
     </>
   );
 };

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { CallControls, ParticipantView, ParticipantsAudio } from "@stream-io/video-react-sdk";
+import { PowerIcon, WifiOffIcon } from "lucide-react";
+import { DefaultParticipantViewUI, ParticipantView, ParticipantsAudio } from "@stream-io/video-react-sdk";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 import type { CallInfo } from "../../types";
@@ -12,8 +13,10 @@ import { useAgentEvents } from "../../hooks/use-agent-events";
 import { useSendInput } from "../../hooks/use-send-input";
 import { useCallPeople } from "../../hooks/use-agent-participant";
 import { PhysioLivePanel } from "./physio-live-panel";
+import { Bi, BrandMark } from "./call-brand";
 import {
-  AutoplayUnblock, CaptionsPanel, ConsentBanner, PainScale, PhaseIndicator, RepCounter, StopButton, SymptomButtons,
+  AutoplayUnblock, CaptionsPanel, CaptionsSheet, ConsentBanner, MediaControls, PainScale, PhaseIndicator, RepCounter,
+  StopButton, SymptomButtons,
 } from "./guided-controls";
 
 interface Props {
@@ -21,6 +24,18 @@ interface Props {
   onLeave: () => void;
   onEndForAll?: () => void;
 }
+
+const CoachJoining = () => (
+  <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+    <span className="relative flex size-20 items-center justify-center">
+      <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+      <span className="absolute inset-2 animate-spin rounded-full border-2 border-white/10 border-t-primary" />
+      <span className="size-3 rounded-full bg-primary" />
+    </span>
+    <Bi t={S.coachJoining} className="items-center gap-1" mlClassName="text-xl text-white" enClassName="text-sm text-white/70 opacity-100" />
+    <p className="text-xs text-white/50"><span lang="ml" className="font-ml">{S.waitingCoachHint.ml}</span> · {S.waitingCoachHint.en}</p>
+  </div>
+);
 
 /** §10.3: the agent's annotated tile is the main view for both; the physio also sees the raw patient tile. */
 export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
@@ -34,76 +49,121 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
   // Participants not rendered with a ParticipantView still need their audio.
   const unrendered = [...others, ...(patient ? [patient] : [])]
     .filter((p) => !p.isLocalParticipant && (isPatient || p.userId !== info.patientId));
+  const agentDown = feed.alert?.reason === "agent_down";
 
-  return (
-    <div className="h-dvh flex flex-col md:grid md:grid-cols-[1fr_360px] gap-3 p-3 text-white">
-      <div className="flex flex-col gap-3 min-h-0">
-        <div className="bg-[#101213] rounded-full px-4 py-2 flex items-center gap-3">
-          {isPatient ? (
-            <span className="flex items-center justify-center p-1 bg-white/10 rounded-full"><Image src="/logo.svg" width={22} height={22} alt="PhysioCoach" /></span>
-          ) : (
-            <Link href={`/sessions/${info.sessionId}`} className="flex items-center justify-center p-1 bg-white/10 rounded-full">
-              <Image src="/logo.svg" width={22} height={22} alt="PhysioCoach" />
-            </Link>
-          )}
-          <h4 className="text-base truncate">
-            {info.label}{isPatient && <span lang="ml" className="font-ml opacity-80"> · {info.exercise.nameMl}</span>}
-          </h4>
-          <span className="ml-auto"><AutoplayUnblock /></span>
-        </div>
+  const stage = (
+    <div className={cn(
+      "relative min-h-0 flex-1 overflow-hidden bg-black md:rounded-2xl md:ring-1 md:ring-white/10",
+      isPatient ? "min-h-[36dvh]" : "min-h-[40dvh] rounded-2xl ring-1 ring-white/10",
+    )}>
+      {agent ? (
+        <ParticipantView participant={agent} ParticipantViewUI={null}
+          className="!aspect-auto h-full !w-full !max-w-none !rounded-none !bg-black [&_video]:!object-contain" />
+      ) : (
+        <CoachJoining />
+      )}
 
-        <div className="relative flex-1 min-h-[40dvh] rounded-xl overflow-hidden bg-black">
-          {agent ? (
-            <ParticipantView participant={agent} className="h-full [&_video]:object-contain" />
-          ) : (
-            <div className="h-full flex items-center justify-center text-lg">
-              <span lang="ml" className="font-ml">{S.coachJoining.ml}</span>&nbsp;· {S.coachJoining.en}
-            </div>
-          )}
-          <div className="absolute top-3 left-3 flex flex-col items-start gap-2">
-            <PhaseIndicator feed={feed} />
-            <RepCounter feed={feed} repsPlanned={info.prescription.reps} />
-          </div>
-          {feed.alert?.reason === "agent_down" && (
-            <div className="absolute inset-x-0 bottom-0 bg-rose-600 text-center py-2">
-              <span lang="ml" className="font-ml">{S.coachDown.ml}</span> · {S.coachDown.en}
-            </div>
-          )}
-          {isPatient && me && (
-            <div className="absolute bottom-3 right-3 w-28 md:w-44 aspect-video rounded-lg overflow-hidden border border-white/30">
-              <ParticipantView participant={me} mirror muteAudio className="h-full" />
-            </div>
-          )}
-        </div>
-
-        {!isPatient && patient && (
-          <div className="h-40 md:h-52 rounded-xl overflow-hidden bg-black">
-            <ParticipantView participant={patient} className="h-full" />
-          </div>
-        )}
-        <ParticipantsAudio participants={unrendered} />
+      {/* Overlay chips */}
+      <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-8rem)] flex-col items-start gap-2 sm:max-w-[60%]">
+        <PhaseIndicator feed={feed} />
+        <RepCounter feed={feed} repsPlanned={info.prescription.reps} />
       </div>
 
-      <div className="flex flex-col gap-3 overflow-y-auto max-h-[45dvh] md:max-h-none">
-        <CaptionsPanel feed={feed} showEnglish={!isPatient || info.patientLang === "en"} />
-        {isPatient ? (
-          <>
-            <ConsentBanner feed={feed} send={send} />
-            <StopButton send={send} />
+      {isPatient && me && (
+        <div className="absolute right-3 top-3 z-10 aspect-[3/4] w-24 overflow-hidden rounded-xl shadow-xl ring-2 ring-white/30 sm:w-32 md:aspect-video md:w-44">
+          <ParticipantView participant={me} mirror muteAudio ParticipantViewUI={null} className="!aspect-auto h-full !w-full !max-w-none !rounded-none [&_video]:!object-cover" />
+        </div>
+      )}
+
+      {agentDown && (
+        <div role="alert" className="absolute inset-x-3 top-1/2 z-10 mx-auto flex max-w-sm -translate-y-1/2 items-center gap-3 rounded-xl bg-rose-600/95 px-4 py-3 text-white shadow-xl">
+          <WifiOffIcon className="size-5 shrink-0" aria-hidden />
+          <Bi t={S.coachDown} mlClassName="text-base" />
+        </div>
+      )}
+
+      {isPatient && <CaptionsSheet feed={feed} showEnglish={info.patientLang === "en"} />}
+    </div>
+  );
+
+  if (isPatient) {
+    return (
+      <div className="flex h-dvh flex-col overflow-hidden bg-neutral-950 text-white">
+        <header className="flex shrink-0 items-center gap-3 px-3 py-2 md:px-4 md:py-3">
+          <BrandMark compact />
+          <h1 className="min-w-0 flex-1 truncate text-sm font-medium md:text-base">
+            <span lang="ml" className="font-ml">{info.exercise.nameMl}</span>
+            <span className="hidden text-white/60 sm:inline"> · {info.exercise.nameEn}</span>
+          </h1>
+          <AutoplayUnblock />
+        </header>
+
+        <div className="relative flex min-h-0 flex-1 flex-col gap-3 md:flex-row md:gap-4 md:px-4">
+          {stage}
+          <aside className={cn(
+            "flex shrink-0 flex-col gap-3 overflow-y-auto overscroll-contain px-3 transition-[max-height] duration-300 md:max-h-none md:w-[380px] md:px-0 md:pb-2",
+            feed.awaitingPain ? "max-h-[58dvh]" : "max-h-[30dvh]",
+          )}>
             <PainScale feed={feed} send={send} />
             <SymptomButtons send={send} />
-          </>
-        ) : (
-          <>
-            <PhysioLivePanel feed={feed} sessionId={info.sessionId} targetAngle={info.prescription.targetAngle} onDismiss={dismissAlert} />
-            <StopButton send={send} label={{ ml: "സെറ്റ് നിർത്തുക", en: "Stop the set" }} />
-            {onEndForAll && <Button variant="secondary" onClick={onEndForAll}>End session for all</Button>}
-          </>
-        )}
-        <div className="bg-[#101213] rounded-full px-4">
-          <CallControls onLeave={onLeave} />
+          </aside>
+          <ConsentBanner feed={feed} send={send} />
         </div>
+
+        {/* Always visible: Stop + device controls */}
+        <footer className="z-30 flex shrink-0 items-center gap-3 border-t border-white/10 bg-neutral-950/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur md:px-4">
+          <StopButton send={send} className="min-w-0 flex-1" />
+          <MediaControls onLeave={onLeave} />
+        </footer>
+        <ParticipantsAudio participants={unrendered} />
       </div>
+    );
+  }
+
+  return (
+    <div className="flex h-dvh flex-col overflow-hidden bg-neutral-950 text-white">
+      <header className="flex shrink-0 items-center gap-3 border-b border-white/10 px-3 py-2 md:px-4">
+        <Link href={`/sessions/${info.sessionId}`} className="rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60" aria-label="Back to session">
+          <BrandMark compact />
+        </Link>
+        <span className="hidden h-5 w-px bg-white/15 sm:block" />
+        <h1 className="min-w-0 flex-1 truncate text-sm font-medium md:text-base">{info.label}</h1>
+        <span className="hidden items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300 sm:inline-flex">
+          <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex size-2 rounded-full bg-emerald-400" /></span>
+          Live
+        </span>
+        <AutoplayUnblock />
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 md:grid md:grid-cols-[minmax(0,1fr)_400px] md:gap-4 md:overflow-hidden md:p-4">
+        <div className="flex min-h-0 flex-col gap-3">
+          {stage}
+          {patient && (
+            <div className="relative h-40 shrink-0 overflow-hidden rounded-2xl bg-black ring-1 ring-white/10 md:h-52">
+              <ParticipantView participant={patient} ParticipantViewUI={DefaultParticipantViewUI} className="!aspect-auto h-full !w-full !max-w-none !rounded-none [&_video]:!object-contain" />
+              <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-neutral-900/70 px-2.5 py-1 text-xs font-medium backdrop-blur">Patient camera (raw)</span>
+            </div>
+          )}
+        </div>
+
+        <aside className="flex min-h-0 flex-col gap-3 md:overflow-y-auto md:pr-1">
+          <PhysioLivePanel feed={feed} sessionId={info.sessionId} targetAngle={info.prescription.targetAngle}
+            repsPlanned={info.prescription.reps} agentPresent={!!agent} onDismiss={dismissAlert} />
+          <CaptionsPanel feed={feed} showEnglish />
+          <StopButton send={send} label={{ ml: "സെറ്റ് നിർത്തുക", en: "Stop the set" }} />
+        </aside>
+      </div>
+
+      <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:px-4">
+        <MediaControls onLeave={onLeave} />
+        {onEndForAll && (
+          <Button variant="outline" onClick={onEndForAll}
+            className="min-h-11 border-rose-500/40 bg-transparent text-rose-300 hover:bg-rose-600 hover:text-white">
+            <PowerIcon /> End session for all
+          </Button>
+        )}
+      </footer>
+      <ParticipantsAudio participants={unrendered} />
     </div>
   );
 };

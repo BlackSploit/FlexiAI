@@ -19,8 +19,8 @@ export const NewPrescriptionDialog = ({
 
   return (
     <ResponsiveDialog
-      title="New Prescription"
-      description="Prescribe an exercise the coach will guide"
+      title="New prescription"
+      description="Set the exercise, target angle and volume. The coach guides the patient through it."
       open={open}
       onOpenChange={onOpenChange}
     >

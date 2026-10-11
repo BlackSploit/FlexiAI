@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
-import { OctagonAlertIcon } from "lucide-react";
+import { Loader2Icon, OctagonAlertIcon } from "lucide-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Input } from "@/components/ui/input";
@@ -76,17 +76,18 @@ export const SignUpView = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <Card className="overflow-hidden p-0">
-        <CardContent className="grid p-0 md:grid-cols-2">
+      <Card className="gap-0 rounded-xl p-0 shadow-sm">
+        <CardContent className="p-0">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 md:p-8">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 sm:p-8">
               <div className="flex flex-col gap-6">
-                <div className="flex flex-col items-center text-center">
-                  <h1 className="text-2xl font-bold">
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary">For physiotherapists</p>
+                  <h1 className="text-2xl font-semibold tracking-tight">
                     Let&apos;s get started
                   </h1>
-                  <p className="text-muted-foreground text-balance">
-                    Create your physiotherapist account
+                  <p className="text-sm text-muted-foreground text-balance">
+                    Create your physiotherapist account to start prescribing guided sessions.
                   </p>
                 </div>
                 <div className="grid gap-3">
@@ -99,7 +100,9 @@ export const SignUpView = () => {
                         <FormControl>
                           <Input
                             type="text"
-                            placeholder="John Doe"
+                            autoComplete="name"
+                            className="h-11"
+                            placeholder="Dr. Anjali Menon"
                             {...field}
                           />
                         </FormControl>
@@ -118,7 +121,9 @@ export const SignUpView = () => {
                         <FormControl>
                           <Input
                             type="email"
-                            placeholder="m@example.com"
+                            autoComplete="email"
+                            className="h-11"
+                            placeholder="you@clinic.in"
                             {...field}
                           />
                         </FormControl>
@@ -137,6 +142,8 @@ export const SignUpView = () => {
                         <FormControl>
                           <Input
                             type="password"
+                            autoComplete="new-password"
+                            className="h-11"
                             placeholder="********"
                             {...field}
                           />
@@ -156,6 +163,8 @@ export const SignUpView = () => {
                         <FormControl>
                           <Input
                             type="password"
+                            autoComplete="new-password"
+                            className="h-11"
                             placeholder="********"
                             {...field}
                           />
@@ -166,7 +175,7 @@ export const SignUpView = () => {
                   />
                 </div>
                 {!!error && (
-                  <Alert className="bg-destructive/10 border-none">
+                  <Alert role="alert" className="bg-destructive/10 border-none">
                     <OctagonAlertIcon className="h-4 w-4 !text-destructive" />
                     <AlertTitle>{error}</AlertTitle>
                   </Alert>
@@ -174,31 +183,25 @@ export const SignUpView = () => {
                 <Button
                   disabled={pending}
                   type="submit"
-                  className="w-full"
+                  className="h-11 w-full"
                 >
-                  Create account
+                  {pending && <Loader2Icon className="size-4 animate-spin" aria-hidden />}
+                  {pending ? "Creating account…" : "Create account"}
                 </Button>
-                <div className="text-center text-sm">
+                <div className="text-center text-sm text-muted-foreground">
                   Already have an account?{" "}
-                  <Link href="/sign-in" className="underline underline-offset-4">
+                  <Link href="/sign-in" className="font-medium text-primary underline-offset-4 hover:underline focus-visible:underline">
                     Sign in
                   </Link>
                 </div>
               </div>
             </form>
           </Form>
-
-          <div className="bg-radial from-sidebar-accent to-sidebar relative hidden md:flex flex-col gap-y-4 items-center justify-center">
-            <img src="/logo.svg" alt="Image" className="h-[92px] w-[92px]" />
-            <p className="text-2xl font-semibold text-white">
-              PhysioCoach
-            </p>
-          </div>
         </CardContent>
       </Card>
 
       <div className="text-muted-foreground *:[a]:hover:text-primary text-center text-xs text-balance *:[a]:underline *:[a]:underline-offset-4">
-        By clicking continue, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+        By continuing, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
       </div>
     </div>
   );

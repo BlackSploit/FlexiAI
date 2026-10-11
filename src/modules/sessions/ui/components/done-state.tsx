@@ -1,95 +1,116 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useState } from "react";
-import { BarChart3Icon, BookOpenTextIcon, ClockFadingIcon, ListIcon, NotebookPenIcon } from "lucide-react";
+import {
+  ActivityIcon, GaugeIcon, HeartPulseIcon, Layers3Icon, RepeatIcon, TimerIcon, TrophyIcon,
+} from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/lib/utils";
-import { GeneratedAvatar } from "@/components/generated-avatar";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn, formatDuration } from "@/lib/utils";
+import { PAIN_ALERT_THRESHOLD } from "@/constants";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PhysioNotes } from "@/modules/notes/ui/components/physio-notes";
 
 import { SessionGetOne, SessionResults } from "../../types";
-import { PainBadge } from "./pain-badge";
 import { RepChart } from "./rep-chart";
 import { SetResultsTable } from "./set-results-table";
+import { PanelEmpty, SectionCard, StatTile } from "./session-panels";
 
-const tabClass = "text-muted-foreground rounded-none bg-background data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-b-primary data-[state=active]:text-accent-foreground h-full hover:text-accent-foreground";
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 export const DoneState = ({ data, results }: { data: SessionGetOne; results: SessionResults }) => {
-  const [lang, setLang] = useState<"en" | "ml">("en");
+  const [setIdx, setSetIdx] = useState(0);
+
+  const plannedSets = data.prescription.sets;
+  const repsDone = results.reduce((a, r) => a + r.repsDone, 0);
+  const repsPlanned = results.reduce((a, r) => a + r.repsPlanned, 0) || data.prescription.reps * plannedSets;
+  const avgPeak = avg(results.map((r) => r.avgPeak));
+  const avgTempo = avg(results.map((r) => r.avgRepSeconds));
+  const bestScore = results.length ? Math.max(...results.map((r) => r.score)) : null;
+  const pains = results.map((r) => r.pain).filter((p): p is number => p !== null);
+  const maxPain = pains.length ? Math.max(...pains) : null;
+  const target = data.prescription.targetAngle;
+  const minTempo = data.prescription.minSecondsPerRep;
+  const selected = results.length ? results[Math.min(setIdx, results.length - 1)] : undefined;
+
   return (
-    <Tabs defaultValue="summary" className="flex flex-col gap-y-4">
-      <div className="bg-white rounded-lg border px-3">
-        <ScrollArea>
-          <TabsList className="p-0 bg-background justify-start rounded-none h-13">
-            <TabsTrigger value="summary" className={tabClass}><BookOpenTextIcon />Summary</TabsTrigger>
-            <TabsTrigger value="sets" className={tabClass}><ListIcon />Sets</TabsTrigger>
-            <TabsTrigger value="reps" className={tabClass}><BarChart3Icon />Reps</TabsTrigger>
-            <TabsTrigger value="notes" className={tabClass}><NotebookPenIcon />Notes</TabsTrigger>
-          </TabsList>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <StatTile
+          label="Sets"
+          icon={Layers3Icon}
+          value={<>{results.length}<span className="text-base text-muted-foreground">/{plannedSets}</span></>}
+          hint={results.length >= plannedSets ? "All sets finished" : "Some sets not finished"}
+          tone={results.length >= plannedSets ? "good" : "warn"}
+        />
+        <StatTile
+          label="Reps"
+          icon={RepeatIcon}
+          value={<>{repsDone}<span className="text-base text-muted-foreground">/{repsPlanned}</span></>}
+          hint={`${Math.round((repsDone / Math.max(repsPlanned, 1)) * 100)}% of plan`}
+        />
+        <StatTile
+          label="Avg peak"
+          icon={GaugeIcon}
+          value={avgPeak === null ? "–" : `${Math.round(avgPeak)}°`}
+          hint={`Target ${target}°${avgPeak !== null ? ` · ${avgPeak >= target ? "reached" : `${Math.round(target - avgPeak)}° short`}` : ""}`}
+          tone={avgPeak === null ? "default" : avgPeak >= target ? "good" : avgPeak >= target * 0.85 ? "warn" : "bad"}
+        />
+        <StatTile
+          label="Avg tempo"
+          icon={TimerIcon}
+          value={avgTempo === null ? "–" : `${avgTempo.toFixed(1)} s`}
+          hint={`Aim for ${minTempo} s or more per rep`}
+          tone={avgTempo === null ? "default" : avgTempo >= minTempo ? "good" : "warn"}
+        />
+        <StatTile
+          label="Best score"
+          icon={TrophyIcon}
+          value={bestScore === null ? "–" : Math.round(bestScore)}
+          hint={data.duration ? `Out of 100 · ${formatDuration(data.duration)} session` : "Out of 100"}
+        />
+        <StatTile
+          label="Max pain"
+          icon={HeartPulseIcon}
+          value={maxPain === null ? "–" : `${maxPain}/10`}
+          hint={maxPain === null ? "Not reported" : maxPain >= PAIN_ALERT_THRESHOLD ? "At or above alert level" : "Reported by patient"}
+          tone={maxPain === null ? "default" : maxPain >= PAIN_ALERT_THRESHOLD ? "bad" : maxPain >= 4 ? "warn" : "good"}
+        />
       </div>
 
-      <TabsContent value="summary" className="flex flex-col gap-y-4">
-        <div className="bg-white rounded-lg border p-5 flex flex-col gap-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <GeneratedAvatar variant="initials" seed={data.patient.name} className="size-8" />
-            <Link href={`/patients/${data.patient.id}`} className="text-lg font-medium hover:underline">{data.patient.name}</Link>
-            <span className="text-muted-foreground">· {data.exercise.nameEn}</span>
-            {data.mode === "replay" && <Badge variant="secondary">replay</Badge>}
-            <Badge variant="outline" className="flex items-center gap-x-2 [&>svg]:size-4">
-              <ClockFadingIcon className="text-blue-700" />
-              {data.duration ? formatDuration(data.duration) : "No duration"}
-            </Badge>
+      <SectionCard
+        title="Peak angle per rep"
+        description="Each bar is one counted rep. The dashed line is the prescribed target."
+        action={results.length > 1 ? (
+          <div role="group" aria-label="Choose set" className="inline-flex flex-wrap gap-1 rounded-lg border bg-muted/50 p-1">
+            {results.map((r, i) => (
+              <button
+                key={r.id}
+                type="button"
+                aria-pressed={i === setIdx}
+                onClick={() => setSetIdx(i)}
+                className={cn(
+                  "h-8 rounded-md px-3 text-sm font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  i === setIdx ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Set {r.setIndex}
+              </button>
+            ))}
           </div>
-          {results.map((r) => (
-            <div key={r.id} className="rounded-md border p-4 flex flex-col gap-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium">Set {r.setIndex}</p>
-                <Badge variant="outline">score {Math.round(r.score)}</Badge>
-                <Badge variant="outline">{r.feedbackSource === "llm" ? "AI note" : "Rule note"}</Badge>
-                <PainBadge pain={r.pain} />
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                <div><p className="text-muted-foreground">Avg peak</p><p className="font-medium">{Math.round(r.avgPeak)}° of {r.targetAngle}°</p></div>
-                <div><p className="text-muted-foreground">Best / lowest</p><p className="font-medium">{Math.round(r.bestPeak)}° / {Math.round(r.lowestPeak)}°</p></div>
-                <div><p className="text-muted-foreground">Reps</p><p className="font-medium">{r.repsDone}/{r.repsPlanned}</p></div>
-                <div><p className="text-muted-foreground">Too fast</p><p className="font-medium">{r.fastReps}</p></div>
-              </div>
-              {lang === "en"
-                ? <p className="text-sm leading-relaxed">{r.feedbackEn}</p>
-                : <p lang="ml" className="font-ml leading-relaxed">{r.feedbackMl}</p>}
-            </div>
-          ))}
-          <Button variant="ghost" size="sm" className="self-start" onClick={() => setLang(lang === "en" ? "ml" : "en")}>
-            {lang === "en" ? <span lang="ml" className="font-ml">മലയാളത്തിൽ കാണുക</span> : "Show in English"}
-          </Button>
-        </div>
-      </TabsContent>
+        ) : undefined}
+      >
+        {selected ? <RepChart perRep={selected.perRep} targetAngle={selected.targetAngle} /> : (
+          <PanelEmpty icon={ActivityIcon} title="No reps to chart" hint="No set results were saved for this session." className="py-8" />
+        )}
+      </SectionCard>
 
-      <TabsContent value="sets"><SetResultsTable results={results} /></TabsContent>
+      {results.length > 0 && <SetResultsTable results={results} />}
 
-      <TabsContent value="reps" className="flex flex-col gap-y-4">
-        {results.map((r) => (
-          <div key={r.id} className="bg-white rounded-lg border p-4">
-            <p className="font-medium mb-2">Set {r.setIndex}</p>
-            <RepChart perRep={r.perRep} targetAngle={r.targetAngle} />
-          </div>
-        ))}
-      </TabsContent>
-
-      <TabsContent value="notes">
-        <div className="bg-white rounded-lg border p-4">
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-            <PhysioNotes patientId={data.patient.id} />
-          </Suspense>
-        </div>
-      </TabsContent>
-    </Tabs>
+      <SectionCard title="Physio notes" description={`Private notes about ${data.patient.name}. Not shown to the patient.`}>
+        <Suspense fallback={<div className="flex flex-col gap-2"><Skeleton className="h-20 w-full" /><Skeleton className="h-4 w-1/3" /></div>}>
+          <PhysioNotes patientId={data.patient.id} />
+        </Suspense>
+      </SectionCard>
+    </div>
   );
 };

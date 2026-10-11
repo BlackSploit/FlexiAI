@@ -5,6 +5,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { Loader2Icon } from "lucide-react";
+
 import { useTRPC } from "@/trpc/client";
 import { MAX_REPS } from "@/constants";
 
@@ -122,7 +124,7 @@ export const PrescriptionForm = ({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input type="number" inputMode="decimal" {...props} name={field.name} ref={field.ref} onBlur={field.onBlur}
+            <Input type="number" inputMode="decimal" className="h-10 tabular-nums" {...props} name={field.name} ref={field.ref} onBlur={field.onBlur}
               value={field.value === undefined ? "" : String(field.value)}
               onChange={(e) => field.onChange(e.target.value)} />
           </FormControl>
@@ -138,7 +140,9 @@ export const PrescriptionForm = ({
       <NewPatientDialog open={openNewPatientDialog} onOpenChange={setOpenNewPatientDialog}
         onCreated={(id) => id && form.setValue("patientId", id, { shouldValidate: true })} />
       <Form {...form}>
-        <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+        <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+          <fieldset className="space-y-4">
+            <legend className="mb-3 text-sm font-semibold">Patient &amp; exercise</legend>
           <FormField
             name="patientId"
             control={form.control}
@@ -161,12 +165,13 @@ export const PrescriptionForm = ({
                     onSearch={setPatientSearch}
                     value={field.value}
                     placeholder="Select a patient"
+                    className="h-10"
                   />
                 </FormControl>
                 <FormDescription>
-                  Not found what you&apos;re looking for?{" "}
-                  <button type="button" className="text-primary hover:underline" onClick={() => setOpenNewPatientDialog(true)}>
-                    Create new patient
+                  New patient?{" "}
+                  <button type="button" className="font-medium text-primary hover:underline" onClick={() => setOpenNewPatientDialog(true)}>
+                    Add them first
                   </button>
                 </FormDescription>
                 <FormMessage />
@@ -198,16 +203,24 @@ export const PrescriptionForm = ({
                     }}
                     value={field.value ?? ""}
                     placeholder="Select an exercise"
+                    className="h-10"
                   />
                 </FormControl>
-                {selectedExercise && <FormDescription>{selectedExercise.howToEn}</FormDescription>}
+                <FormDescription>
+                  {selectedExercise ? selectedExercise.howToEn : "The coach explains the movement in Malayalam and counts each rep."}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <div className="grid grid-cols-2 gap-4">
+          </fieldset>
+          <fieldset className="space-y-4">
+            <legend className="mb-3 text-sm font-semibold">Movement target</legend>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {numberField("targetAngle", "Target angle (°)", { min: 10, max: 180 },
-              selectedExercise ? `At least ${selectedExercise.minPeak}°` : undefined)}
+              selectedExercise
+                ? `Target bend angle in degrees. At least ${selectedExercise.minPeak}° for this exercise.`
+                : "Target bend angle in degrees.")}
             <FormField
               name="side"
               control={form.control}
@@ -216,7 +229,7 @@ export const PrescriptionForm = ({
                   <FormLabel>Side</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-full h-10"><SelectValue /></SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="auto">Auto (best visible)</SelectItem>
@@ -224,20 +237,27 @@ export const PrescriptionForm = ({
                       <SelectItem value="right">Right</SelectItem>
                     </SelectContent>
                   </Select>
+                  <FormDescription>Which limb the camera tracks.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            {numberField("reps", "Reps per set", { min: 1, max: MAX_REPS })}
-            {numberField("sets", "Sets", { min: 1, max: 5 })}
-            {numberField("minSecondsPerRep", "Min seconds per rep", { min: 0.5, max: 10, step: 0.5 })}
-            {numberField("sessionsPerWeek", "Sessions per week", { min: 1, max: 14 })}
           </div>
+          </fieldset>
+          <fieldset className="space-y-4">
+            <legend className="mb-3 text-sm font-semibold">Volume &amp; schedule</legend>
+          <div className="grid grid-cols-2 gap-4">
+            {numberField("reps", "Reps per set", { min: 1, max: MAX_REPS }, `1 to ${MAX_REPS}`)}
+            {numberField("sets", "Sets", { min: 1, max: 5 }, "1 to 5, with a rest between")}
+            {numberField("minSecondsPerRep", "Min seconds per rep", { min: 0.5, max: 10, step: 0.5 }, "Faster reps get a “slow down” cue")}
+            {numberField("sessionsPerWeek", "Sessions per week", { min: 1, max: 14 }, "Used for adherence")}
+          </div>
+          </fieldset>
           <FormField
             name="active"
             control={form.control}
             render={({ field }) => (
-              <FormItem className="flex items-center justify-between rounded-md border p-3">
+              <FormItem className="flex items-center justify-between gap-4 rounded-xl border bg-muted/30 p-4">
                 <div>
                   <FormLabel>Active</FormLabel>
                   <FormDescription>Only active prescriptions can start sessions.</FormDescription>
@@ -248,14 +268,15 @@ export const PrescriptionForm = ({
               </FormItem>
             )}
           />
-          <div className="flex justify-between gap-x-2">
+          <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             {onCancel && (
               <Button variant="ghost" disabled={isPending} type="button" onClick={() => onCancel()}>
                 Cancel
               </Button>
             )}
             <Button disabled={isPending} type="submit">
-              {isEdit ? "Update" : "Create"}
+              {isPending && <Loader2Icon className="animate-spin" />}
+              {isPending ? "Saving…" : isEdit ? "Save changes" : "Create prescription"}
             </Button>
           </div>
         </form>

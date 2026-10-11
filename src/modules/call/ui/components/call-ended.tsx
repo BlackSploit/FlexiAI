@@ -1,29 +1,33 @@
 import Link from "next/link";
+import { ArrowRightIcon, CheckCircle2Icon, PhoneOffIcon, ShieldCheckIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 import type { CallInfo } from "../../types";
 import { S } from "../../strings";
+import { StatusCard } from "./call-brand";
 
-export const CallEnded = ({ info }: { info: CallInfo }) => (
-  <div className="flex flex-col items-center justify-center h-full bg-radial from-sidebar-accent to-sidebar">
-    <div className="py-4 px-4 md:px-8 flex flex-1 items-center justify-center">
-      <div className="flex flex-col items-center justify-center gap-y-6 bg-background rounded-lg p-10 shadow-sm">
-        {info.viewer === "patient" ? (
-          <div className="flex flex-col gap-y-2 text-center">
-            <h6 lang="ml" className="text-lg font-medium font-ml">{S.thanks.ml}</h6>
-            <p className="text-sm">{S.thanks.en}</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col gap-y-2 text-center">
-              <h6 className="text-lg font-medium">You have left the call</h6>
-              <p className="text-sm">Set results appear on the session page as they arrive.</p>
-            </div>
-            <Button asChild><Link href={`/sessions/${info.sessionId}`}>Back to session</Link></Button>
-          </>
-        )}
-      </div>
-    </div>
-  </div>
-);
+export const CallEnded = ({ info }: { info: CallInfo }) =>
+  info.viewer === "patient" ? (
+    <StatusCard
+      icon={CheckCircle2Icon}
+      tone="success"
+      title={<><span lang="ml" className="font-ml block text-2xl leading-snug">{S.thanks.ml}</span><span className="mt-1 block text-base font-normal text-muted-foreground">{S.thanks.en}</span></>}
+      description={<><span lang="ml" className="font-ml block text-base">{S.closePage.ml}</span>{S.closePage.en}</>}
+    >
+      <p className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+        <ShieldCheckIcon className="size-3.5 text-emerald-600" aria-hidden />
+        <span lang="ml" className="font-ml">{S.noVideoStored.ml}</span> · {S.noVideoStored.en}
+      </p>
+    </StatusCard>
+  ) : (
+    <StatusCard
+      icon={PhoneOffIcon}
+      title="You have left the call"
+      description={`${info.label}. Set results appear on the session page as they arrive.`}
+    >
+      <Button asChild size="lg" className="w-full sm:w-auto">
+        <Link href={`/sessions/${info.sessionId}`}>View session results <ArrowRightIcon /></Link>
+      </Button>
+    </StatusCard>
+  );

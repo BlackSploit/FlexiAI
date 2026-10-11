@@ -1,6 +1,6 @@
 "use client";
 
-import { XCircleIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 
 import { DEFAULT_PAGE } from "@/constants";
 import { Button } from "@/components/ui/button";
@@ -22,24 +22,29 @@ export const SessionsListHeader = () => {
   };
 
   return (
-    <div className="py-4 px-4 md:px-8 flex flex-col gap-y-4">
-      <div className="flex items-center justify-between">
-        <h5 className="font-medium text-xl">Sessions</h5>
+    <div className="pt-6 pb-4 px-4 md:px-8 flex flex-col gap-y-5">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+        <p className="text-sm text-muted-foreground">
+          Every guided home-exercise call, its live status and what the coach measured.
+        </p>
       </div>
-      <ScrollArea>
-        <div className="flex items-center gap-x-2 p-1">
-          <SessionsSearchFilter />
-          <StatusFilter />
-          <PatientIdFilter value={filters.patientId} onChange={(id) => setFilters({ patientId: id, page: DEFAULT_PAGE })} />
-          {isAnyFilterModified && (
-            <Button variant="outline" onClick={onClearFilters}>
-              <XCircleIcon className="size-4" />
-              Clear
-            </Button>
-          )}
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <SessionsSearchFilter />
+        <ScrollArea className="w-full lg:w-auto">
+          <div className="flex items-center gap-2 pb-1 lg:pb-0">
+            <StatusFilter />
+            <PatientIdFilter value={filters.patientId} onChange={(id) => setFilters({ patientId: id, page: DEFAULT_PAGE })} />
+            {isAnyFilterModified && (
+              <Button variant="ghost" size="sm" onClick={onClearFilters} className="text-muted-foreground">
+                <XIcon className="size-4" />
+                Clear filters
+              </Button>
+            )}
+          </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      </div>
     </div>
   );
 };

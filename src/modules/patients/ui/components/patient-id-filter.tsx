@@ -18,7 +18,7 @@ export const PatientIdFilter = ({ value, onChange }: Props) => {
 
   return (
     <CommandSelect
-      className="h-9"
+      className="h-10 bg-card"
       placeholder="Patient"
       options={(data?.items ?? []).map((patient) => ({
         id: patient.id,

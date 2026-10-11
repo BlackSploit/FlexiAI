@@ -19,6 +19,7 @@
     "dev:create-call": "tsx --conditions=react-server scripts/dev-create-call.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@dicebear/collection": "^9.2.2",
     "@dicebear/core": "^9.2.2",
     "@hookform/resolvers": "^5.0.1",

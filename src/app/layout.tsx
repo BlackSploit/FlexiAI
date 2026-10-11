@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Malayalam } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next";
 
@@ -19,8 +19,20 @@ const notoMl = Noto_Sans_Malayalam({
 });
 
 export const metadata: Metadata = {
-  title: "PhysioCoach",
-  description: "Live supervised physiotherapy exercise",
+  title: {
+    template: "%s · PhysioCoach",
+    default: "PhysioCoach",
+  },
+  description:
+    "Guided home physiotherapy in Malayalam: physiotherapists prescribe exercises, an AI coach counts reps live, and progress is tracked without storing video.",
+  applicationName: "PhysioCoach",
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#14A39A" },
+    { media: "(prefers-color-scheme: dark)", color: "#0F2A30" },
+  ],
 };
 
 export default function RootLayout({

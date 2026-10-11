@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from types import SimpleNamespace
 
 import anthropic
@@ -18,12 +19,14 @@ GOOD_EN = "Good effort: you bent to 48 degrees on average against a target of 60
 
 
 class FakeMessages:
-    def __init__(self, text=None, stop_reason="end_turn", delay=0.0):
-        self.text, self.stop_reason, self.delay = text, stop_reason, delay
+    def __init__(self, text=None, stop_reason="end_turn", delay=0.0, raises=None):
+        self.text, self.stop_reason, self.delay, self.raises = text, stop_reason, delay, raises
         self.calls: list[dict] = []
 
     async def create(self, **kwargs):
         self.calls.append(kwargs)
+        if self.raises is not None:
+            raise self.raises
         if self.delay:
             await asyncio.sleep(self.delay)
         content = [SimpleNamespace(type="thinking", thinking="")]
@@ -42,6 +45,8 @@ def fake_client(monkeypatch, payload=None, **kw):
 
 @pytest.fixture(autouse=True)
 def api_key(monkeypatch):
+    monkeypatch.delenv("NOTE_LLM_MODEL", raising=False)
+    monkeypatch.delenv("NOTE_LLM_TIMEOUT_S", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("NOTE_LLM_ENABLED", "true")
     monkeypatch.setenv("NOTE_LLM_SERVER_FALLBACK", "true")
@@ -108,9 +113,43 @@ async def test_timeout_falls_back(monkeypatch):
     assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
 
 
-async def test_refusal_falls_back(monkeypatch):
-    fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN}, stop_reason="refusal")
+@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
+async def test_non_end_turn_stop_reason_falls_back(monkeypatch, stop_reason):
+    fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN}, stop_reason=stop_reason)
     assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+async def test_missing_text_block_falls_back(monkeypatch):
+    fake_client(monkeypatch, None)                           # only a thinking block comes back
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+async def test_network_error_falls_back(monkeypatch):
+    import httpx
+    err = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    fake_client(monkeypatch, raises=err)
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+@pytest.mark.parametrize("kw", [
+    {"payload": "not json"},
+    {"payload": {"ml": GOOD_ML, "en": GOOD_EN}, "stop_reason": "refusal"},
+    {"payload": {"ml": GOOD_ML, "en": GOOD_EN + " See a doctor."}},
+])
+async def test_rule_fallback_is_instant(monkeypatch, kw):
+    fake_client(monkeypatch, kw.pop("payload"), **kw)
+    t0 = time.perf_counter()
+    note, source = await note_llm.post_set_note(METRICS, RULE)
+    assert (note, source) == (RULE, "rules")
+    assert note is RULE                                      # the precomputed rule note, not rebuilt
+    assert time.perf_counter() - t0 < 0.1
+
+
+async def test_model_env_override(monkeypatch):
+    monkeypatch.setenv("NOTE_LLM_MODEL", "claude-test-model")
+    beta, _ = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+    await note_llm.post_set_note(METRICS, RULE)
+    assert beta.calls[0]["model"] == "claude-test-model"
 
 
 async def test_no_api_key_skips_the_network(monkeypatch):

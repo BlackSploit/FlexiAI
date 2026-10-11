@@ -2,7 +2,7 @@
 
 import { toast } from "sonner";
 import { useState } from "react";
-import { PlayIcon } from "lucide-react";
+import { Loader2Icon, PlayIcon } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTRPC } from "@/trpc/client";
@@ -43,7 +43,7 @@ export const StartSessionButton = ({ prescriptionId, patient, mode = "live", cli
           e.stopPropagation();
           start.mutate({ prescriptionId, mode, clip });
         }}>
-        <PlayIcon />
+        {start.isPending ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
         {start.isPending ? "Starting coach…" : label ?? (mode === "replay" ? "Start replay (demo)" : "Start guided session")}
       </Button>
     </>

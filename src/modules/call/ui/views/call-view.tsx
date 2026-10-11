@@ -1,16 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useSuspenseQuery } from "@tanstack/react-query";
 
 import { useTRPC } from "@/trpc/client";
-import { ErrorState } from "@/components/error-state";
+import { Button } from "@/components/ui/button";
+import { CalendarX2Icon, Link2OffIcon } from "lucide-react";
 
 import type { CallInfo } from "../../types";
 import { S } from "../../strings";
 import { PatientCallProvider, PhysioCallProvider } from "../components/call-provider";
+import { StatusCard } from "../components/call-brand";
 
-const Centered = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex h-full items-center justify-center bg-radial from-sidebar-accent to-sidebar">{children}</div>
+export const PhysioCallErrorState = ({ title, description }: { title: string; description: string }) => (
+  <StatusCard icon={CalendarX2Icon} tone="danger" title={title} description={description} />
 );
 
 export const PhysioCallView = ({ sessionId }: { sessionId: string }) => {
@@ -18,7 +21,11 @@ export const PhysioCallView = ({ sessionId }: { sessionId: string }) => {
   const { data } = useSuspenseQuery(trpc.sessions.getOne.queryOptions({ id: sessionId }));
 
   if (data.status !== "scheduled" && data.status !== "live") {
-    return <Centered><ErrorState title="This session is not active" description="Start a new session from the prescription." /></Centered>;
+    return (
+      <StatusCard icon={CalendarX2Icon} title="This session is not active" description="It has already finished or was cancelled. Start a new session from the prescription.">
+        <Button asChild><Link href={`/sessions/${data.id}`}>View session</Link></Button>
+      </StatusCard>
+    );
   }
 
   const info: CallInfo = {
@@ -60,7 +67,10 @@ export const PatientCallView = ({ token }: { token: string }) => {
 };
 
 export const JoinErrorState = () => (
-  <Centered>
-    <ErrorState title={`${S.linkInvalid.ml}`} description={S.linkInvalid.en} />
-  </Centered>
+  <StatusCard
+    icon={Link2OffIcon}
+    tone="danger"
+    title={<span lang="ml" className="font-ml text-lg leading-relaxed">{S.linkInvalid.ml}</span>}
+    description={S.linkInvalid.en}
+  />
 );

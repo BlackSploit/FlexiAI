@@ -38,6 +38,30 @@ export const S = {
     ml: "ക്യാമറയ്ക്ക് അഭിമുഖമായി നിൽക്കുക; കൈ മുഴുവനും സ്ക്രീനിൽ കാണണം; നല്ല വെളിച്ചം വേണം.",
     en: "Face the camera, whole arm in the frame, in good light.",
   },
+  // Added for the polished call UI (DRAFT Malayalam, review required).
+  todaysExercise: { ml: "ഇന്നത്തെ വ്യായാമം", en: "Today's exercise" },
+  camera: { ml: "ക്യാമറ", en: "Camera" },
+  mic: { ml: "മൈക്ക്", en: "Mic" },
+  on: { ml: "ഓൺ", en: "On" },
+  off: { ml: "ഓഫ്", en: "Off" },
+  placementTitle: { ml: "ക്യാമറ എങ്ങനെ വയ്ക്കാം", en: "How to place your phone" },
+  howTo: { ml: "എങ്ങനെ ചെയ്യാം", en: "How to do it" },
+  permTitle: { ml: "ക്യാമറയും മൈക്കും അനുവദിക്കുക", en: "Allow camera and microphone" },
+  permBody: {
+    ml: "വിലാസ ബാറിലെ പൂട്ട് ചിഹ്നത്തിൽ ടാപ്പ് ചെയ്ത് ക്യാമറയും മൈക്കും “അനുവദിക്കുക”, എന്നിട്ട് വീണ്ടും ശ്രമിക്കുക.",
+    en: "Tap the lock icon in the address bar, allow camera and microphone, then try again.",
+  },
+  tryAgain: { ml: "വീണ്ടും ശ്രമിക്കുക", en: "Try again" },
+  reps: { ml: "ആവർത്തനം", en: "Reps" },
+  set: { ml: "സെറ്റ്", en: "Set" },
+  sound: { ml: "ശബ്ദം", en: "Sound" },
+  leave: { ml: "പുറത്തുകടക്കുക", en: "Leave" },
+  agreedWaiting: { ml: "നന്ദി! സഹായി ആരംഭിക്കുന്നു…", en: "Thank you! The coach is starting…" },
+  painNow: { ml: "സഹായി ചോദിക്കുന്നു: വേദന എത്ര?", en: "The coach is asking about your pain" },
+  closePage: { ml: "നിങ്ങൾക്ക് ഈ പേജ് അടയ്ക്കാം.", en: "You can close this page now." },
+  connecting: { ml: "ബന്ധിപ്പിക്കുന്നു…", en: "Connecting…" },
+  waitingCoachHint: { ml: "കുറച്ച് നിമിഷങ്ങൾ കാത്തിരിക്കുക", en: "This usually takes a few seconds" },
+  noVideoStored: { ml: "വീഡിയോ റെക്കോർഡ് ചെയ്യുന്നില്ല", en: "Video is never recorded" },
 } as const;
 
 export const PHASE_LABEL: Record<string, { ml: string; en: string }> = {

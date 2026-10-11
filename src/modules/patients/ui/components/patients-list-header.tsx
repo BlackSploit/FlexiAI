@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { PlusIcon, XCircleIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 
 import { DEFAULT_PAGE } from "@/constants";
 import { Button } from "@/components/ui/button";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
+import { PageHeader } from "./ui-kit";
 import { NewPatientDialog } from "./new-patient-dialog";
 import { PatientsSearchFilter } from "./patients-search-filter";
 import { usePatientsFilters } from "../../hooks/use-patients-filters";
@@ -27,27 +27,26 @@ export const PatientsListHeader = () => {
   return (
     <>
       <NewPatientDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
-      <div className="py-4 px-4 md:px-8 flex flex-col gap-y-4">
-        <div className="flex items-center justify-between">
-          <h5 className="font-medium text-xl">My Patients</h5>
-          <Button onClick={() => setIsDialogOpen(true)}>
+      <PageHeader
+        title="Patients"
+        description="Everyone you prescribe home exercises to. Open a patient to see their plans, sessions and progress."
+        action={
+          <Button onClick={() => setIsDialogOpen(true)} className="w-full sm:w-auto">
             <PlusIcon />
-            New Patient
+            New patient
           </Button>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <PatientsSearchFilter />
+          {isAnyFilterModified && (
+            <Button variant="ghost" size="sm" onClick={onClearFilters} className="text-muted-foreground">
+              <XIcon />
+              Clear filters
+            </Button>
+          )}
         </div>
-        <ScrollArea>
-          <div className="flex items-center gap-x-2 p-1">
-            <PatientsSearchFilter />
-            {isAnyFilterModified && (
-              <Button variant="outline" size="sm" onClick={onClearFilters}>
-                <XCircleIcon />
-                Clear
-              </Button>
-            )}
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      </div>
+      </PageHeader>
     </>
   );
 };
