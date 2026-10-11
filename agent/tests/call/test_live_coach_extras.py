@@ -1,7 +1,6 @@
 """Live Coach WP1b: camera stills (D5, H1), request_rest / repeat_instructions (D6) and optional partial
 transcripts (H3). Pure: the real Flow/Speaker with a FakePort, or the unit coach with a manual clock."""
 
-import asyncio
 import base64
 
 import pytest
