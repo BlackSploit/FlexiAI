@@ -6,6 +6,7 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    // Tolerate a value pasted with surrounding quotes.
+    url: (process.env.DATABASE_URL ?? "").trim().replace(/^["']|["']$/g, ""),
   },
 });

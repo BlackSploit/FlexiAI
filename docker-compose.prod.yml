@@ -43,9 +43,9 @@ services:
       NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
     expose: ["3000"]
+    # Not gated on `migrate`: the schema already exists, and a failed migrate must not keep the site down.
+    # Check the migrate container's log after each deploy.
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       agent-worker:
         condition: service_started
     restart: unless-stopped

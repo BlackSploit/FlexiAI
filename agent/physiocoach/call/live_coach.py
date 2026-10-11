@@ -449,11 +449,20 @@ class LiveCoach:
                 return False
             if f.phase in ("countdown", "set"):
                 return self.settings.set_listen
-            if f.phase not in CONVERSATIONAL or self._speaker_busy():
+            if f.phase not in CONVERSATIONAL:
+                return False
+            if self._speaker_busy() and not (self.user_speaking and self._clip_held()):
                 return False
             return self.settings.barge_in or not self._pcm_recent(COACH_TAIL_S)
         except Exception:  # noqa: BLE001
             return False
+
+    def _clip_held(self) -> bool:
+        """A queued clip is being held for the patient's utterance and nothing is audible yet. The input must
+        stay open then, or OpenAI never hears the end of the utterance (no commit) and the hold runs to 5 s."""
+        if self._hold_since is None or self.speaker is None:
+            return False
+        return getattr(self.speaker, "playing_kind", "unknown") is None
 
     # -------------------------------------------------------------- clips (Speaker hooks)
     def hold(self, kind: str) -> float:
@@ -770,7 +779,7 @@ class LiveCoach:
                 return
             self._coach_checked[item_id] = upto
             # Partial coach captions: only checked whole sentences, only while the reply is audible.
-            if (self.settings.partials and not self.suppress and self._conversational()
+            if (self.settings.partials and not self.suppress and self._can_speak() and not self._speaker_busy()
                     and text[:upto].strip() and self._partial_ok()):
                 self._transcript("coach", item_id, text[:upto].strip(), final=False)
 
