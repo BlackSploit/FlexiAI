@@ -1,0 +1,102 @@
+# Production stack for Dokploy ("Docker Compose" application, compose path: docker-compose.prod.yml).
+# Every ${VAR} comes from the Dokploy "Environment" tab (Dokploy writes it to .env next to this file).
+# Only `web` gets a domain (physio.algon.tech -> service web, port 3000, HTTPS) in the Dokploy "Domains" tab.
+# agent-worker and redis are internal: no published ports.
+services:
+  # One-shot pre-deploy job: migrations + exercise library upsert. web waits for it to succeed.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://physio.algon.tech}
+        NEXT_PUBLIC_STREAM_VIDEO_API_KEY: ${NEXT_PUBLIC_STREAM_VIDEO_API_KEY:?set NEXT_PUBLIC_STREAM_VIDEO_API_KEY}
+        NEXT_PUBLIC_STREAM_AGENT_USER_ID: ${NEXT_PUBLIC_STREAM_AGENT_USER_ID:-physiocoach-agent}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${NEXT_PUBLIC_APP_URL:-https://physio.algon.tech}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://physio.algon.tech}
+      NEXT_PUBLIC_STREAM_VIDEO_API_KEY: ${NEXT_PUBLIC_STREAM_VIDEO_API_KEY}
+      NEXT_PUBLIC_STREAM_AGENT_USER_ID: ${NEXT_PUBLIC_STREAM_AGENT_USER_ID:-physiocoach-agent}
+      STREAM_VIDEO_SECRET_KEY: ${STREAM_VIDEO_SECRET_KEY:?set STREAM_VIDEO_SECRET_KEY}
+      STREAM_CALL_TYPE: ${STREAM_CALL_TYPE:-default}
+      JOIN_LINK_SECRET: ${JOIN_LINK_SECRET:?set JOIN_LINK_SECRET}
+      AGENT_WORKER_URL: http://agent-worker:8080
+      AGENT_CONTROL_SECRET: ${AGENT_CONTROL_SECRET:?set AGENT_CONTROL_SECRET}
+      AGENT_CALLBACK_SECRET: ${AGENT_CALLBACK_SECRET:?set AGENT_CALLBACK_SECRET}
+      AGENT_REPLAY_CLIPS: ${AGENT_REPLAY_CLIPS:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-minimal}
+      NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+    expose: ["3000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      agent-worker:
+        condition: service_started
+    restart: unless-stopped
+
+  agent-worker:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    environment:
+      STREAM_API_KEY: ${NEXT_PUBLIC_STREAM_VIDEO_API_KEY}
+      STREAM_API_SECRET: ${STREAM_VIDEO_SECRET_KEY}
+      WEB_INTERNAL_URL: http://web:3000
+      REDIS_URL: redis://redis:6379/0
+      WORKER_HOST: ${WORKER_HOST:-dokploy}
+      AGENT_CONTROL_SECRET: ${AGENT_CONTROL_SECRET}
+      AGENT_CALLBACK_SECRET: ${AGENT_CALLBACK_SECRET}
+      NEXT_PUBLIC_STREAM_AGENT_USER_ID: ${NEXT_PUBLIC_STREAM_AGENT_USER_ID:-physiocoach-agent}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-minimal}
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-}
+      LIVE_COACH: ${LIVE_COACH:-on}
+      LIVE_COACH_VIDEO: ${LIVE_COACH_VIDEO:-on}
+      LIVE_COACH_SET_LISTEN: ${LIVE_COACH_SET_LISTEN:-on}
+      LIVE_COACH_BARGE_IN: ${LIVE_COACH_BARGE_IN:-off}
+      NOTE_LLM_ENABLED: ${NOTE_LLM_ENABLED:-true}
+      NOTE_LLM_TIMEOUT_S: ${NOTE_LLM_TIMEOUT_S:-3.5}
+      NOTE_TTS_TIMEOUT_S: ${NOTE_TTS_TIMEOUT_S:-3.0}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      VOICE_SLUG: ${VOICE_SLUG:-dev-espeak-ml}
+      POSE_BACKEND: ${POSE_BACKEND:-mediapipe}
+      POSE_FPS: ${POSE_FPS:-12}
+      MAX_SESSIONS: ${MAX_SESSIONS:-2}
+      PATIENT_JOIN_TIMEOUT_S: ${PATIENT_JOIN_TIMEOUT_S:-900}
+      BARGEIN_MIN_RMS: ${BARGEIN_MIN_RMS:-0.02}
+    expose: ["8080"]
+    depends_on: [redis]
+    restart: unless-stopped
+    # ~1.5 GB RAM and 2 vCPU per concurrent session (MAX_SESSIONS=2); adjust to the VPS.
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4g
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+    restart: unless-stopped
+
+volumes:
+  redis-data:

@@ -1,0 +1,10 @@
+{
+  "type": "pc.transcript",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "role": "assistant",
+  "turnId": "resp_0001",
+  "text": "hello",
+  "final": true
+}

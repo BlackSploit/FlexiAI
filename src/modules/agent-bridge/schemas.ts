@@ -9,6 +9,8 @@ import { z } from "zod";
 
 const env = { v: z.literal(1), eventId: z.string().min(8).max(64), ts: z.number().int() };
 export const Phase = z.enum(["greeting", "await_consent", "positioning", "countdown", "set", "summary", "await_pain", "rest", "done", "halted"]);
+export const VoiceState = z.enum(["off", "listening", "thinking", "speaking"]);
+export type VoiceState = z.infer<typeof VoiceState>;
 
 /* ---------- client -> agent (Stream custom events + backup tRPC path) ---------- */
 export const ClientToAgentEvent = z.discriminatedUnion("type", [
@@ -27,6 +29,10 @@ export const AgentToClientEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pc.set_summary"), ...env, setIndex: z.number().int(), repsDone: z.number().int(), repsPlanned: z.number().int(), avgPeak: z.number(), bestPeak: z.number(), target: z.number(), fastReps: z.number().int(), score: z.number().min(0).max(100), feedbackSource: z.enum(["rules", "llm"]) }),
   z.object({ type: z.literal("pc.request_pain"), ...env, setIndex: z.number().int() }),
   z.object({ type: z.literal("pc.safety_alert"), ...env, reason: z.enum(["pain", "stop", "symptom", "agent_down"]), score: z.number().int().optional(), symptom: z.string().optional(), setIndex: z.number().int().optional() }),
+  // Live-coach speech transcript; partials and the final for one utterance share role + turnId.
+  z.object({ type: z.literal("pc.transcript"), ...env, role: z.enum(["user", "coach"]), turnId: z.string().min(1).max(64), text: z.string().max(400), final: z.boolean(), lang: z.enum(["ml", "en", "other"]).optional() }),
+  // Live-coach voice state; `live` is whether the realtime coach connection is up.
+  z.object({ type: z.literal("pc.voice"), ...env, state: VoiceState, live: z.boolean() }),
 ]);
 export type ClientToAgentEvent = z.infer<typeof ClientToAgentEvent>;
 export type AgentToClientEvent = z.infer<typeof AgentToClientEvent>;

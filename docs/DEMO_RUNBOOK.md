@@ -19,7 +19,21 @@ created by `npm run db:seed -- --demo`, which also adds 5 past sessions so the R
 
 **Voice**
 - [ ] The voice cache is present. `agent/assets/voice/<VOICE_SLUG>/` exists in the worker image and `VOICE_SLUG` points at it. Use the demo voice set, **not** `dev-espeak-ml`.
-- [ ] The greeting is audible on both devices during the dry run.
+- [ ] The greeting is audible on the phone during the dry run (and on the laptop only if the Live Coach is off).
+
+**Live Coach (OpenAI Realtime; skip this block if `OPENAI_API_KEY` is not set)**
+- [ ] Preflight both checks. They print whether the key is set, never its value, and exit non-zero on failure:
+  ```bash
+  docker compose exec agent-worker python -m physiocoach.devtools.check_openai     # text model + one strict note call
+  docker compose exec agent-worker python -m physiocoach.devtools.check_realtime   # realtime model, voice, session config
+  ```
+- [ ] In the dry run, the "live" coach badge appears a second or two after the patient joins, and one question during
+  positioning gets a spoken answer.
+- [ ] Malayalam check: if the realtime coach's Malayalam recognition or speech is weak in rehearsal, switch the demo
+  patient's language to `en` for the conversation beats and **keep the Malayalam safety beat** (the deterministic
+  spotter and the clips are Malayalam either way).
+- [ ] Know the kill switch: set `LIVE_COACH=off` in the root `.env` (or the Dokploy Environment tab), then restart the
+  worker (`docker compose up -d agent-worker`). The session then sounds exactly as it does without the Live Coach.
 
 **Network**
 - [ ] Both devices are on the same reliable network (a phone hotspot as backup). Venue Wi-Fi with a captive portal is not acceptable.
@@ -28,7 +42,14 @@ created by `npm run db:seed -- --demo`, which also adds 5 past sessions so the R
 
 **Sound and devices**
 - [ ] The phone is charged, brightness up, volume up, and auto-lock is off. The browser has already been allowed camera access for the domain.
-- [ ] Laptop volume is up. The **physio mic is muted**, because room echo would trigger barge-in and silence the coach.
+- [ ] **Room setup: only the patient phone plays the coach's audio.** The laptop (physio) uses headphones or has its
+  speakers muted, or sits in another room. Otherwise the coach hears itself through the patient's mic.
+- [ ] The **physio mic is muted** unless you are doing the barge-in beat, because room echo would trigger barge-in and
+  silence the coach.
+- [ ] Volume: phone at about 70-80% (loud enough to hear across 2-3 m, not so loud that it distorts or echoes back
+  into its own mic). Speak to the coach in a normal voice, facing the phone, one sentence at a time, then pause.
+- [ ] Keep `LIVE_COACH_BARGE_IN=off` (half-duplex: wait for the coach to finish before speaking) unless barge-in was
+  rehearsed in this room.
 - [ ] Space: the patient stands side-on, 2–3 m from the phone, with the whole leg in frame and good front lighting.
 
 **Fallbacks ready**
@@ -62,6 +83,29 @@ created by `npm run db:seed -- --demo`, which also adds 5 past sessions so the R
 
 ---
 
+## Live Coach beats (when the Live Coach is on)
+
+Fold these into the script above (they add about 1:30; trim the Problem and Results steps to fit). The safety beat
+needs a second set: give the demo prescription 2 sets, or run it in a second session. Every Malayalam line still
+needs a native-speaker check.
+
+| When | Patient says / does | What should happen |
+|---|---|---|
+| Positioning (step 7) | "എന്റെ കാൽ ശരിയായി കാണുന്നുണ്ടോ?" ("Can you see my leg properly?") | The coach answers in 1-2 sentences. The orb goes listening, thinking, speaking, and a caption bubble appears. |
+| Positioning | "ഇത് എത്ര തവണ ചെയ്യണം?" ("How many times should I do this?") | Grounded numbers from the prescription, e.g. "10 reps, bend to 60 degrees". |
+| Countdown and set (step 8) | Just exercise. | The orb shows "Coach is quiet while counting — say stop anytime". Counts are the exact recorded clips. |
+| Pain check (step 9) | After the pain question: "മൂന്ന്" ("three") | The pain scale closes on 3 and the thank-you clip plays. Tapping still works too. |
+| Rest | Wait a moment, then ask "ഞാൻ എങ്ങനെ ചെയ്തു?" ("How did I do?") | The coach starts on its own with grounded feedback, then answers using only real numbers. |
+| Rest (guardrail) | "ഈ വേദനയ്ക്ക് ഏത് ഗുളിക കഴിക്കണം?" ("Which tablet should I take for this pain?") | The fixed redirect: ask your physiotherapist. No medical advice. |
+| Rest | "ഞാൻ തയ്യാറാണ്" ("I'm ready") | Rest ends and the countdown starts. |
+| Any time | The physio unmutes and speaks. | The coach stops at once; the physio panel shows both sides of the transcript. Mute again afterwards. |
+| Set 2 (safety) | "എനിക്ക് തല കറങ്ങുന്നു" ("I feel dizzy"), said clearly, then a pause. | The set halts within about 1-2 s, the safety clip plays, the physio gets the red alert and the coach stays silent. |
+
+**Voice stop and voice symptoms are a backup.** The on-screen Stop button is the primary path. If nothing happens
+within 2 s of a spoken "stop" or symptom, **press Stop** (or the symptom button) on the phone.
+
+---
+
 ## If something goes wrong
 
 | Symptom | Do this |
@@ -73,6 +117,10 @@ created by `npm run db:seed -- --demo`, which also adds 5 past sessions so the R
 | The coach froze or dropped out | In the physio panel, click **Restart coach**. The set index continues and consent is kept. |
 | A rep was missed | Keep going. Say "it only counts a rep when the full movement is tracked". Frame-rate dips are a known issue. |
 | The LLM note is slow | Nothing to do. The rule note plays right away with the same content. |
+| No "live" badge, or the coach never answers | The Live Coach failed to connect or dropped; clips carry on. Continue with buttons. Before the next run, rerun the preflight checks. |
+| The coach talks over itself, repeats, or reacts to its own voice | Echo: mute or put headphones on the laptop, lower the phone volume a little. If it persists, use the kill switch (`LIVE_COACH=off`, restart the worker). |
+| The coach misunderstands Malayalam | Repeat once, slowly. If it keeps failing, use the buttons, and switch the next run to an `en` patient (keep the Malayalam safety beat). |
+| A spoken "stop" or symptom is ignored | Press **Stop** or the symptom button. Voice is a backup only. |
 | The dashboard is behind | It polls every 2 s. Refresh the page. |
 
 ## Fallback ladder

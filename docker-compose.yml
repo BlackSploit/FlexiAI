@@ -21,6 +21,19 @@ services:
       AGENT_CONTROL_SECRET: ${AGENT_CONTROL_SECRET:-}
       AGENT_CALLBACK_SECRET: ${AGENT_CALLBACK_SECRET:-}
       WORKER_HOST: agent-worker-dev
+      # OpenAI (root .env): post-set note (text model) and the Live Coach (realtime). Empty value = default.
+      # No key -> rule notes + cached clips only, exactly as before.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-minimal}
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-}
+      # Live Coach flags. LIVE_COACH empty = on when OPENAI_API_KEY is set; "off" is the kill switch.
+      LIVE_COACH: ${LIVE_COACH:-}
+      LIVE_COACH_VIDEO: ${LIVE_COACH_VIDEO:-on}
+      LIVE_COACH_SET_LISTEN: ${LIVE_COACH_SET_LISTEN:-on}
+      LIVE_COACH_BARGE_IN: ${LIVE_COACH_BARGE_IN:-off}
+      NOTE_LLM_ENABLED: ${NOTE_LLM_ENABLED:-true}
     extra_hosts: ["host.docker.internal:host-gateway"]
     ports: ["127.0.0.1:8080:8080"]
     volumes:

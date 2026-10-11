@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, getTableColumns, ilike, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
+import { countOf } from "@/db/count";
 import { callSessions, exercises, prescriptions, user } from "@/db/schema";
 import { createTRPCRouter, physioProcedure } from "@/trpc/init";
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE } from "@/constants";
@@ -14,7 +15,7 @@ const listColumns = {
   ...getTableColumns(prescriptions),
   patient: { id: user.id, name: user.name, image: user.image },
   exercise: { id: exercises.id, nameEn: exercises.nameEn, nameMl: exercises.nameMl },
-  sessionCount: db.$count(callSessions, eq(callSessions.prescriptionId, prescriptions.id)),
+  sessionCount: countOf(callSessions, eq(callSessions.prescriptionId, prescriptions.id)),
   lastScore: sql<number | null>`(select sr.score from set_results sr join call_sessions cs on cs.id = sr.call_session_id
     where cs.prescription_id = ${prescriptions.id} order by sr.created_at desc limit 1)`,
 };

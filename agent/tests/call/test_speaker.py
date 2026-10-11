@@ -141,3 +141,77 @@ def test_unknown_phrase_id_fails_loudly():
     sp = Speaker(FakeAgent(), lambda t: 0.0)
     with pytest.raises(KeyError):
         sp.say_ids(["nope"], "cue")
+
+
+# ------------------------------------------------------------------ live-coach hooks
+
+async def test_hold_delays_prompts_but_never_safety_or_counts():
+    agent = FakeAgent()
+    holding = {"on": True}
+    asked: list[str] = []
+
+    def hold(kind):
+        asked.append(kind)
+        return 5.0 if holding["on"] else 0.0
+
+    sp = Speaker(agent, lambda t: CLIP_S, hold=hold)
+    task = asyncio.create_task(sp.run())
+    sp.say_ids(["pos.ok"], "prompt")
+    await asyncio.sleep(0.1)
+    assert agent.said == [] and sp.busy                  # held: still queued, so busy
+    sp.say_ids(["count.01"], "count")                    # a count behind a held prompt waits its turn
+    await asyncio.sleep(0.05)
+    assert agent.said == []
+    holding["on"] = False
+    await asyncio.sleep(0.25)                            # the hold is re-checked at least every 0.2 s
+    await sp.wait_idle()
+    assert agent.said == ml("pos.ok", "count.01")
+    assert "count" not in asked                          # counts are never even asked about
+    task.cancel()
+
+
+async def test_safety_during_a_hold_plays_at_once_and_drops_the_stale_prompt():
+    agent = FakeAgent()
+    sp = Speaker(agent, lambda t: CLIP_S, hold=lambda kind: 5.0)   # the coach "speaks" forever
+    task = asyncio.create_task(sp.run())
+    sp.say_ids(["pos.ok"], "prompt")
+    await asyncio.sleep(0.05)
+    await sp.safety()
+    await asyncio.sleep(0.05)
+    assert agent.said == ml("safety.stop")              # first, without waiting for the hold
+    await asyncio.sleep(0.3)
+    assert ml("pos.ok")[0] not in agent.said            # the stale prompt was flushed by safety()
+    task.cancel()
+
+
+async def test_before_play_is_called_first_and_a_broken_hook_never_blocks_audio():
+    agent = FakeAgent()
+    calls: list[tuple[str, int]] = []
+
+    def before(kind):
+        calls.append((kind, len(agent.said)))
+        raise RuntimeError("hook bug")
+
+    sp = Speaker(agent, lambda t: CLIP_S, before_play=before, hold=lambda k: 1 / 0)
+    task = asyncio.create_task(sp.run())
+    sp.say_ids(["count.01"], "count")
+    sp.say_ids(["pos.ok"], "prompt")
+    await asyncio.sleep(0)
+    await sp.wait_idle()
+    assert agent.said == ml("count.01", "pos.ok")
+    assert calls == [("count", 0), ("prompt", 1)]       # before each clip, nothing said yet for it
+    task.cancel()
+
+
+async def test_busy_and_playing_kind_follow_clip_durations():
+    agent = FakeAgent()
+    sp = Speaker(agent, lambda t: 0.1)
+    task = asyncio.create_task(sp.run())
+    assert not sp.busy and sp.playing_kind is None
+    sp.say_ids(["count.01"], "count")
+    assert sp.busy
+    await asyncio.sleep(0.02)
+    assert sp.busy and sp.playing_kind == "count"
+    await asyncio.sleep(0.15)
+    assert not sp.busy and sp.playing_kind is None
+    task.cancel()

@@ -11,6 +11,10 @@
   queued counts collapse to the latest.
 * Safety: caption sent immediately (awaited), queue flushed, current audio interrupted; the
   safety.stop audio plays first as soon as the gate is open. Nothing delays the halt itself.
+* Live coach hooks (optional, default off): `hold(kind) -> seconds` is checked on the queue head BEFORE
+  popleft, so a held prompt never blocks a safety clip or the physio gate (the wait is sliced at 0.2 s
+  and wakes on every enqueue); `before_play(kind)` is a synchronous, non-blocking preempt called first
+  thing in `_play`. Neither is ever allowed to raise into the playback loop.
 
 Pure asyncio (no vision_agents import): `agent` only needs `say(text)` and `send_custom_event(dict)`.
 """
@@ -56,8 +60,13 @@ class SpeakerStats:
 class Speaker:
     def __init__(self, agent, duration_of: Callable[[str], Optional[float]],
                  interrupt_audio: Optional[Callable[[], Awaitable[None]]] = None,
-                 clock: Callable[[], float] = time.monotonic, max_cue_age: float = MAX_CUE_AGE_S):
+                 clock: Callable[[], float] = time.monotonic, max_cue_age: float = MAX_CUE_AGE_S,
+                 hold: Optional[Callable[[Kind], float]] = None,
+                 before_play: Optional[Callable[[Kind], None]] = None):
         self.agent, self.duration_of = agent, duration_of
+        self.hold, self.before_play = hold, before_play
+        self._in_play = False
+        self._last_kind: Optional[Kind] = None
         self.interrupt_audio = interrupt_audio
         self.clock, self.max_cue_age = clock, max_cue_age
         self.busy_until = 0.0
@@ -116,6 +125,24 @@ class Speaker:
     def physio_speaking(self) -> bool:
         return not self._gate_open.is_set()
 
+    @property
+    def busy(self) -> bool:
+        """Something is queued, being handed to the audio path, or (by duration) still audible."""
+        return bool(self._queue) or self._in_play or self.clock() < self.busy_until
+
+    @property
+    def playing_kind(self) -> Optional[Kind]:
+        return self._last_kind if (self._in_play or self.clock() < self.busy_until) else None
+
+    def _hold_for(self, kind: Kind) -> float:
+        if self.hold is None or kind in ("safety", "count"):
+            return 0.0
+        try:
+            return max(0.0, float(self.hold(kind) or 0.0))
+        except Exception as e:  # noqa: BLE001 - a broken hook must never stall the clips
+            log.warning("speaker hold hook failed: %s", e)
+            return 0.0
+
     async def _stop_current_audio(self) -> None:
         self.busy_until = self.clock()
         if self.interrupt_audio:
@@ -138,6 +165,14 @@ class Speaker:
                 except asyncio.TimeoutError:
                     pass
                 continue                                        # re-check gate, queue and priorities
+            held = self._hold_for(self._queue[0].kind)         # BEFORE popleft: safety() can still clear it
+            if held > 0:
+                self._wake.clear()
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=min(held, 0.2))
+                except asyncio.TimeoutError:
+                    pass
+                continue
             u = self._queue.popleft()
             if u.kind == "cue" and self.clock() - u.enqueued_at > self.max_cue_age:
                 self.stats.dropped_cues += 1
@@ -152,18 +187,27 @@ class Speaker:
             await asyncio.sleep(rest)
 
     async def _play(self, u: Utterance) -> None:
-        if not u.captioned:
-            self._fire(self._caption(u))                        # fire-and-forget, say() right away
-        texts = [phrases.get(i).ml for i in u.ids] if u.ids else [u.text or ""]
-        start = max(self.busy_until, self.clock())
-        total = 0.0
-        for text in texts:
-            self.stats.said_at.append((time.time(), text))
-            await self.agent.say(text)
-            self.stats.spoken.append(text)
-            d = self.duration_of(text)
-            total += d if d is not None else EST_S_PER_CHAR * len(text)
-        self.busy_until = start + total
+        if self.before_play is not None:
+            try:
+                self.before_play(u.kind)
+            except Exception as e:  # noqa: BLE001 - the preempt is best effort; the clip always plays
+                log.warning("speaker before_play hook failed: %s", e)
+        self._in_play, self._last_kind = True, u.kind
+        try:
+            if not u.captioned:
+                self._fire(self._caption(u))                    # fire-and-forget, say() right away
+            texts = [phrases.get(i).ml for i in u.ids] if u.ids else [u.text or ""]
+            start = max(self.busy_until, self.clock())
+            total = 0.0
+            for text in texts:
+                self.stats.said_at.append((time.time(), text))
+                await self.agent.say(text)
+                self.stats.spoken.append(text)
+                d = self.duration_of(text)
+                total += d if d is not None else EST_S_PER_CHAR * len(text)
+            self.busy_until = start + total
+        finally:
+            self._in_play = False
 
     # ------------------------------------------------------------ events
     async def _caption(self, u: Utterance) -> None:

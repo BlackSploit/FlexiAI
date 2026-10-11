@@ -1,18 +1,22 @@
 import "server-only";
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
 import { adherencePct, type WeeklyNumbers } from "../lib/weekly-summary-rules";
 import { validateWeeklySummary, WEEKLY_SUMMARY_JSON_SCHEMA, type WeeklySummaryLlm } from "../lib/validate-weekly-summary";
 
 /**
- * Optional LLM weekly summary (§8.9). Returns null on ANY failure (no key, timeout, network, refusal,
+ * Optional LLM weekly summary (§8.9). Returns null on ANY failure (no key, timeout, network, refusal, truncation,
  * invalid JSON, validation) so the caller uses `weeklySummaryRules`. Input is derived numbers only (no PII).
+ * Env: an empty value means "use the default" (OPENAI_MODEL, OPENAI_REASONING_EFFORT).
  */
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+const MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
+/** Empty/unset -> "minimal"; "omit" -> parameter left out; anything else is sent lower-cased (same rule as the agent note). */
+const REASONING_EFFORT = (process.env.OPENAI_REASONING_EFFORT || "").trim().toLowerCase() || "minimal";
 const TIMEOUT_MS = 8000;
-const SERVER_FALLBACK = (process.env.NOTE_LLM_SERVER_FALLBACK ?? "true") === "true";
-const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+
+/** `reasoning_effort` is only accepted by reasoning models (gpt-5 family, o-series); never sent to others. */
+export const supportsReasoningEffort = (model: string) => /^(gpt-5|o\d)/.test(model);
 
 const SYSTEM =
   "You write a short weekly progress summary for a patient doing home exercises prescribed by their " +
@@ -43,31 +47,39 @@ export function summaryInput(n: WeeklyNumbers) {
   };
 }
 
-let client: Anthropic | null = null;
-const getClient = () => (client ??= new Anthropic({ timeout: TIMEOUT_MS, maxRetries: 0 }));
+let client: OpenAI | null = null;
+const getClient = () => (client ??= new OpenAI({ timeout: TIMEOUT_MS, maxRetries: 0 }));
 
 async function callLlm(n: WeeklyNumbers, signal: AbortSignal): Promise<string> {
-  const req = {
-    model: MODEL,
-    max_tokens: 800,
-    system: SYSTEM,
-    thinking: { type: "between_tools" as const },
-    output_config: { effort: "low" as const, format: { type: "json_schema" as const, schema: WEEKLY_SUMMARY_JSON_SCHEMA } },
-    messages: [{ role: "user" as const, content: JSON.stringify(summaryInput(n)) }],
-  };
-  const resp = SERVER_FALLBACK
-    // Server-side fallbacks (Claude API only; Sonnet 5.5 accepts only "default"). The fallback model can refuse too,
-    // so the stop_reason check below still applies.
-    ? await getClient().beta.messages.create({ ...req, betas: [FALLBACK_BETA], fallbacks: "default" }, { signal })
-    : await getClient().messages.create(req, { signal });
-  if (resp.stop_reason !== "end_turn") throw new Error(`stop_reason=${resp.stop_reason}`);
-  const block = resp.content.find((b) => b.type === "text");
-  if (!block || block.type !== "text") throw new Error("no text block");
-  return block.text;
+  const resp = await getClient().chat.completions.create(
+    {
+      model: MODEL,
+      max_completion_tokens: 1200,
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content: JSON.stringify(summaryInput(n)) },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "weekly_summary", strict: true, schema: WEEKLY_SUMMARY_JSON_SCHEMA },
+      },
+      ...(supportsReasoningEffort(MODEL) && REASONING_EFFORT !== "omit"
+        ? { reasoning_effort: REASONING_EFFORT as OpenAI.ReasoningEffort }
+        : {}),
+    },
+    { signal },
+  );
+  const choice = resp.choices?.[0];
+  if (!choice) throw new Error("no choice");
+  if (choice.message?.refusal) throw new Error("refusal");
+  if (choice.finish_reason !== "stop") throw new Error(`finish_reason=${choice.finish_reason}`);
+  const text = choice.message?.content;
+  if (!text || !text.trim()) throw new Error("empty content");
+  return text;
 }
 
 export async function generateWeeklySummary(n: WeeklyNumbers): Promise<WeeklySummaryLlm | null> {
-  if (!process.env.ANTHROPIC_API_KEY || process.env.WEEKLY_SUMMARY_LLM_ENABLED === "false") return null;
+  if (!process.env.OPENAI_API_KEY || process.env.WEEKLY_SUMMARY_LLM_ENABLED === "false") return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {

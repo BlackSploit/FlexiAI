@@ -1,0 +1,248 @@
+PHYSIOCOACH: END-TO-END TESTING GUIDE
+=====================================
+
+Production URL (Dokploy, HTTPS, works on phones):  https://physio.algon.tech   (deploy: docs/DEPLOY_DOKPLOY.md)
+Local URL (this laptop only):                      http://localhost:3000
+Agent worker health (local Docker):                http://127.0.0.1:8080/healthz
+
+Use the production URL for any phone test: browsers only allow the camera over HTTPS.
+In the steps below, <APP> means https://physio.algon.tech (or http://localhost:3000 for a laptop-only test).
+
+
+-------------------------------------------------------------------------------
+0. WHAT IS RUNNING
+-------------------------------------------------------------------------------
+  Service                 How it runs                          Check
+  Web app (production)    npm run start (port 3000)            open the public URL; the sign-in page loads
+  Agent worker (Python)   Docker: psysio_agent-agent-worker-1  http://127.0.0.1:8080/healthz -> {"ok":true,...,"redis":true}
+  Redis                   Docker: psysio_agent-redis-1         shown as "redis":true in healthz
+
+  Production (Dokploy): web + agent-worker + redis + a one-shot migrate job (docs/DEPLOY_DOKPLOY.md).
+    curl https://physio.algon.tech/api/health   -> {"ok":true}
+
+  Local quick check from a terminal in the repo:
+    docker compose ps
+    curl http://127.0.0.1:8080/healthz
+
+  What you need:
+    - A laptop browser (Chrome or Edge) for the PHYSIO.
+    - A phone (or a second browser profile or incognito window) for the PATIENT.
+    - Camera and microphone allowed on both.
+    - Speakers on: the coach talks in Malayalam.
+
+
+-------------------------------------------------------------------------------
+1. PHYSIO ACCOUNT (first time only)
+-------------------------------------------------------------------------------
+  1. Open <APP>/sign-up
+  2. Create an account (name, email, password). Every sign-up is a PHYSIOTHERAPIST. Patients never sign up.
+  3. You land on the Overview dashboard.
+     EXPECT: a branded teal sidebar (Overview, Patients, Prescriptions, Sessions), a greeting, stat tiles, and
+     friendly "empty" panels because there is no data yet.
+
+  Optional: load demo data so trends and charts have something to show:
+    npm run db:seed -- --demo
+  This adds "Demo Patient" with a knee-bend prescription and 5 past sessions (numbers only), linked to the oldest
+  physio account. Refresh the dashboard.
+  EXPECT: Overview tiles show numbers, the patient page shows a range-of-motion trend, adherence, and a weekly
+  summary.
+
+
+-------------------------------------------------------------------------------
+2. CREATE A PATIENT
+-------------------------------------------------------------------------------
+  1. Sidebar -> Patients -> "New patient".
+  2. Fill in the name, phone and preferred language (Malayalam or English). Save.
+  EXPECT: a toast, then the patient appears in the table. Search and filters work.
+  3. Click the patient to open the profile page (header card, prescriptions, sessions, progress, notes).
+  4. Optional: add a physio note in the Notes section, then edit and delete it.
+
+
+-------------------------------------------------------------------------------
+3. CREATE A PRESCRIPTION
+-------------------------------------------------------------------------------
+  1. Sidebar -> Prescriptions -> "New prescription" (or from the patient page).
+  2. Patient: the one you created. Exercise: "Knee bend" (easiest to demo).
+     Suggested values: target angle 60 deg, 10 reps, 1-2 sets, at least 2 s per rep, side Auto.
+  3. Save.
+  EXPECT: the prescription detail page shows the exercise name in Malayalam and English, the targets, and a
+  prominent "Start guided session" button.
+
+  Validation checks (optional):
+    - A target below the exercise minimum (for example 20 deg for knee bend) is rejected with a clear message.
+    - Empty required fields show inline errors.
+
+
+-------------------------------------------------------------------------------
+4. START A GUIDED SESSION (physio laptop)
+-------------------------------------------------------------------------------
+  1. On the prescription page, press "Start guided session".
+     Behind the scenes: a private Stream call is created, the AI coach process starts in the Docker worker, and a
+     signed join link is made.
+  2. You are taken to the session (status: Scheduled). Open the join-link dialog.
+     EXPECT: a QR code, "Copy link" and "Share on WhatsApp".
+  3. Watch the worker start the coach (optional):
+       docker compose logs -f agent-worker
+     EXPECT: lines showing the agent process starting and joining the call.
+  4. Press "Join call" (physio side) -> lobby -> camera/mic preview -> Join.
+     EXPECT: the physio call screen with "Coach is joining..." for a few seconds, then the coach's annotated video
+     tile appears.
+
+  If "Could not start the coach" appears: the worker is not reachable. Check healthz and docker compose ps
+  (see section 10).
+
+
+-------------------------------------------------------------------------------
+5. PATIENT JOINS (phone)
+-------------------------------------------------------------------------------
+  1. Scan the QR code with the phone camera (or open the copied link). The URL looks like
+     <APP>/join/<long token>
+  2. Patient lobby. EXPECT:
+       - The exercise name, large, in Malayalam and English; sets x reps; target angle; a "No video stored" badge.
+       - A camera preview, plus large labelled Mic and Camera toggles.
+       - A placement tip (knee bend: stand or sit SIDE-ON to the camera, whole leg in frame, good light).
+  3. Allow camera and microphone when the browser asks. Tap the big bilingual "Join" button.
+     No account and no password are needed. The link is the credential.
+
+  Placement for knee bend (important for accurate counting):
+    - Put the phone 2-3 m away at hip height, landscape if possible.
+    - Turn side-on so the hip, knee and ankle are all visible. Use bright, even light.
+
+
+-------------------------------------------------------------------------------
+6. THE GUIDED SESSION: what should happen
+-------------------------------------------------------------------------------
+  Phase            Patient sees / hears                              Physio sees
+  ---------------  ------------------------------------------------  ------------------------------------------
+  Greeting         The coach greets in Malayalam; captions appear.   Phase "Welcome"
+  Consent          A consent card ("the coach watches your video     Phase "Consent"
+                   to count reps; nothing is recorded"). Tap
+                   "I agree".
+  Positioning      The coach guides placement. The skeleton          Phase "Positioning"; skeleton on the tile
+                   overlay appears on the coach tile once the body
+                   is found.
+  Countdown        "Get ready" with a countdown.                     Phase "Get ready"
+  Set              Do slow knee bends (>= 2 s each). The rep         Live panel: reps n/10, last peak vs
+                   counter goes up on every rep; short or fast reps  target, tempo, a rep chip per rep (green on
+                   get a spoken cue ("bend more" / "slower").        target, amber short/fast)
+  Summary / note   A spoken post-set note (rule-based, or AI if      Set result
+                   enabled) plus captions.
+  Pain check       The pain scale (0-10) pulses. Tap a number.       Pain value recorded
+  Rest             Rest countdown, then the next set (if sets > 1).  Phase "Rest"
+  Done             Thank-you screen (Malayalam + English).           Session moves to Completed
+
+  Things to verify during the set:
+    [ ] Reps count only when the knee really bends past the threshold. Tiny movements do not count.
+    [ ] Very fast reps are flagged "too fast" (amber) and the coach says to slow down.
+    [ ] Shallow reps (not reaching about the target) get a "bend more" style cue.
+    [ ] The annotated video shows the skeleton, the rep count, an angle gauge and the target line.
+    [ ] Captions show the Malayalam line (large) and English (physio side, or patients with English preference).
+    [ ] PHYSIO BARGE-IN: the physio speaks into their mic. The coach stops talking while the physio speaks.
+    [ ] No sound on the phone (iOS)? Tap the "No sound? Tap here" chip at the top.
+
+
+-------------------------------------------------------------------------------
+7. SAFETY TESTS (the most important part)
+-------------------------------------------------------------------------------
+  Run each on a fresh set or session. Every one must stop the set at once and alert the physio.
+
+  7.1 STOP button (patient)
+      During a set, tap the big red STOP.
+      EXPECT (patient): the set stops at once; "Your physio has been alerted".
+      EXPECT (physio): a red alert banner "Patient pressed Stop". The session page shows an open safety event
+      with an "Acknowledge" button.
+      Also: STOP works even before the coach is ready (tap it in the first seconds after joining).
+
+  7.2 Symptom buttons (patient)
+      Tap "Dizziness", "Chest pain" or "Sharp pain" (ONE tap, no confirm step).
+      EXPECT: the set stops at once, the physio gets a "Symptom reported: ..." alert, and the patient sees
+      "physio alerted". The 3-second "Undo" only clears the badge on the patient screen; the alert is still sent.
+
+  7.3 High pain
+      In the pain check, tap 7, 8, 9 or 10.
+      EXPECT: the physio gets a "Pain N/10 reported" alert and a safety event is recorded. Scores 0-6 are simply
+      recorded on the set.
+
+  7.4 Physio "Stop the set"
+      Physio presses "Stop the set" in the side panel. EXPECT: the set halts and a safety event is recorded.
+
+  7.5 Coach crash / restart
+      In a terminal: docker compose restart agent-worker   (simulates the coach dying mid-call)
+      EXPECT (physio): "Coach disconnected" alert + "Restart coach" button.
+      EXPECT (patient): a "Coach disconnected" bar; the patient can still see and hear the physio.
+      Press "Restart coach" -> the coach rejoins and continues from the next set (no double counting).
+
+  7.6 Acknowledge
+      On the session page, press "Acknowledge" on each open safety event. EXPECT: the alert clears.
+
+
+-------------------------------------------------------------------------------
+8. AFTER THE SESSION: results and analytics (physio)
+-------------------------------------------------------------------------------
+  1. Leave or end the call. Physio "End session for all" asks for confirmation, then ends the call for everyone.
+     A patient leaving does NOT end the session for the physio.
+  2. Sidebar -> Sessions. EXPECT: the session row with a status badge, patient, exercise, duration, sets, best
+     score and a max-pain badge. The status filter and search work.
+  3. Open the session (Completed). EXPECT:
+       - Summary tiles: sets, reps done/planned, average peak vs target, average tempo, max pain.
+       - A set results table with per-set feedback in Malayalam and English plus a source badge (Rules / AI).
+       - A rep chart (peak angle per rep with the target line).
+  4. Patient page -> Progress. EXPECT: the ROM trend chart (with target line), adherence, pain flags, and the
+     weekly summary.
+  5. Weekly summary card -> "Generate AI summary".
+       - With OPENAI working: a bilingual AI draft labelled "AI draft, review before sharing".
+       - Without it, or if validation fails: the rule-based summary (label "Rules"). The app never breaks.
+     "Copy" copies the text for WhatsApp.
+     (Note: the LLM part is being switched from Anthropic to OpenAI. Until that lands it uses the rule summary.)
+  6. Failed sessions: a session where the patient never joins (default timeout 15 min) or the coach failed to
+     start shows "Failed" with a plain-language reason and a way to start a new session.
+
+
+-------------------------------------------------------------------------------
+9. SECURITY CHECKS (quick)
+-------------------------------------------------------------------------------
+  [ ] Open a join link, then on the session page press "Regenerate link". The OLD link now shows the bilingual
+      "This link has expired or is invalid" page.
+  [ ] Change one character of a join link -> the same invalid-link page (no detail leaks).
+  [ ] After a session ends, its join link stops working.
+  [ ] Open /overview in a private window (signed out) -> redirected to /sign-in.
+  [ ] The patient join page has no navigation into the dashboard (the logo is not a link).
+  [ ] Nothing is recorded: Stream recording and transcription are disabled for the call type.
+
+  Changing the public URL:
+    NEXT_PUBLIC_APP_URL is baked into the build. In Dokploy, change it in the Environment tab and press Deploy
+    (a rebuild, not a restart). Locally: set NEXT_PUBLIC_APP_URL and BETTER_AUTH_URL in .env, then
+    npm run build && npm run start.
+
+
+-------------------------------------------------------------------------------
+10. TROUBLESHOOTING
+-------------------------------------------------------------------------------
+  Problem                                  Fix
+  ---------------------------------------  -------------------------------------------------------------------
+  "Could not start the coach"              curl http://127.0.0.1:8080/healthz ; docker compose up -d redis agent-worker
+                                           ; check AGENT_WORKER_URL and AGENT_CONTROL_SECRET in .env
+  The coach never appears in the call      docker compose logs --tail 100 agent-worker ; Stream keys in .env must be
+                                           correct (compose copies them into the worker)
+  Results never arrive after a set         The worker posts to the web app at host.docker.internal:3000. The web app
+                                           must be running on port 3000. Check AGENT_CALLBACK_SECRET in .env.
+  The phone camera does not start          Must be HTTPS: use https://physio.algon.tech, never an IP address.
+                                           Allow camera/mic in the browser site settings.
+  No coach audio on the phone              Tap "No sound? Tap here"; raise the volume; turn off silent mode.
+  Reps not counted                         Side-on, whole leg visible, brighter light, move slower (>= 2 s per rep).
+  Sign-in fails on the public URL          NEXT_PUBLIC_APP_URL must be exactly https://physio.algon.tech; redeploy.
+  Port 3000 already in use                 Stop the other server (Task Manager -> node.exe) or change the port.
+
+  Restart everything:
+    docker compose up -d redis agent-worker
+    npm run build
+    npm run start
+
+
+-------------------------------------------------------------------------------
+11. COMING NEXT: LIVE AI COACH (OpenAI Realtime)
+-------------------------------------------------------------------------------
+  In progress, not in this build: the patient will be able to TALK to the coach ("how many more?", "my knee
+  hurts", "can I rest?") and get live spoken answers in Malayalam or English. The screen will show an animated
+  voice orb and transcript bubbles. Counting and safety stay deterministic, and voice reports of symptoms or pain
+  will take the same safety path as the buttons. This guide will gain a section 11 test list when it ships.

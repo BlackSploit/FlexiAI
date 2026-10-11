@@ -61,7 +61,47 @@ export const S = {
   closePage: { ml: "നിങ്ങൾക്ക് ഈ പേജ് അടയ്ക്കാം.", en: "You can close this page now." },
   connecting: { ml: "ബന്ധിപ്പിക്കുന്നു…", en: "Connecting…" },
   waitingCoachHint: { ml: "കുറച്ച് നിമിഷങ്ങൾ കാത്തിരിക്കുക", en: "This usually takes a few seconds" },
-  noVideoStored: { ml: "വീഡിയോ റെക്കോർഡ് ചെയ്യുന്നില്ല", en: "Video is never recorded" },
+  // Changed for the live coach (D12): voice is never recorded either.
+  // REVIEW ml
+  noVideoStored: { ml: "PhysioCoach വീഡിയോയും ശബ്ദവും ഒരിക്കലും റെക്കോർഡ് ചെയ്യുന്നില്ല", en: "Video and voice are never recorded by PhysioCoach" },
+
+  // Live AI coach (OpenAI Realtime). DRAFT Malayalam: every line below needs a native-speaker check.
+  // REVIEW ml
+  liveCoach: { ml: "തത്സമയ AI സഹായി", en: "Live AI coach" },
+  // REVIEW ml
+  liveCoachShort: { ml: "AI സഹായി", en: "Live AI" },
+  // REVIEW ml
+  voiceListening: { ml: "കേൾക്കുന്നു — എന്തും ചോദിക്കാം", en: "Listening — ask me anything" },
+  // REVIEW ml
+  voiceThinking: { ml: "ആലോചിക്കുന്നു…", en: "Thinking…" },
+  // REVIEW ml
+  voiceSpeaking: { ml: "സഹായി സംസാരിക്കുന്നു", en: "Coach is speaking" },
+  // REVIEW ml
+  voiceOff: { ml: "സഹായി ഇപ്പോൾ കേൾക്കുന്നില്ല", en: "Coach is not listening right now" },
+  // REVIEW ml
+  coachQuiet: {
+    ml: "എണ്ണുമ്പോൾ സഹായി മിണ്ടില്ല — എപ്പോൾ വേണമെങ്കിലും “നിർത്തുക” എന്ന് പറയാം",
+    en: "Coach is quiet while counting — say “stop” or tap Stop anytime",
+  },
+  // REVIEW ml
+  micOffHint: { ml: "സഹായിയോട് സംസാരിക്കാൻ മൈക്ക് ഓണാക്കുക", en: "Turn on your mic to talk to the coach" },
+  // REVIEW ml
+  conversation: { ml: "സംഭാഷണം", en: "Conversation" },
+  // REVIEW ml
+  conversationEmpty: {
+    ml: "സഹായിയോട് എന്തും ചോദിക്കാം — ഉദാ. “എന്നെ ശരിയായി കാണുന്നുണ്ടോ?”",
+    en: "Ask the coach anything — e.g. “Can you see me properly?”",
+  },
+  // REVIEW ml
+  you: { ml: "നിങ്ങൾ", en: "You" },
+  // REVIEW ml
+  coach: { ml: "സഹായി", en: "Coach" },
+  // D12 fixed consent sentence. Always shown (H5): the coach may come up after the patient consents.
+  // REVIEW ml
+  consentVoice: {
+    ml: "തത്സമയ ശബ്ദ സഹായി ഓണാണെങ്കിൽ, നിങ്ങൾക്ക് മറുപടി നൽകാനായി നിങ്ങളുടെ ശബ്ദം (അനുവദിച്ചിട്ടുണ്ടെങ്കിൽ, അടയാളപ്പെടുത്തിയ വ്യായാമ വീഡിയോയുടെ നിശ്ചല ചിത്രങ്ങളും) OpenAI-ലേക്ക് തത്സമയം അയയ്ക്കും. സംഭാഷണത്തിന്റെ തത്സമയ അടിക്കുറിപ്പുകൾ കോളിൽ കാണിക്കും. PhysioCoach നിങ്ങളുടെ വീഡിയോയോ ശബ്ദമോ സംഭാഷണമോ റെക്കോർഡ് ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ഇല്ല. ദുരുപയോഗം തടയാനായി OpenAI അതിന്റെ API നയപ്രകാരം API ഡാറ്റ കുറച്ചുകാലം സൂക്ഷിച്ചേക്കാം.",
+    en: "If the live voice coach is on, your voice (and, if enabled, still images of the annotated exercise video) are sent live to OpenAI so the coach can answer you. Live captions of the conversation are shown in the call. PhysioCoach does not record or store your video, voice or the conversation. OpenAI may keep API data for a limited time for abuse monitoring under its API policy.",
+  },
 } as const;
 
 export const PHASE_LABEL: Record<string, { ml: string; en: string }> = {

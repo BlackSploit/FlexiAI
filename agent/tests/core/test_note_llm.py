@@ -3,7 +3,6 @@ import json
 import time
 from types import SimpleNamespace
 
-import anthropic
 import pytest
 
 from physiocoach.core import note_llm
@@ -16,11 +15,17 @@ RULE = rule_note(DEMO, "flex")
 
 GOOD_ML = "നല്ല ശ്രമം, നിങ്ങൾ ശരാശരി 48 ഡിഗ്രി വരെ മടക്കി, ലക്ഷ്യം 60 ഡിഗ്രി ആണ്. ഇനി 3 തവണ കൂടി പതുക്കെ ചെയ്യൂ."
 GOOD_EN = "Good effort: you bent to 48 degrees on average against a target of 60 degrees. Next, do 3 more reps slowly."
+GOOD = {"ml": GOOD_ML, "en": GOOD_EN}
+
+_UNSET = object()
 
 
-class FakeMessages:
-    def __init__(self, text=None, stop_reason="end_turn", delay=0.0, raises=None):
-        self.text, self.stop_reason, self.delay, self.raises = text, stop_reason, delay, raises
+class FakeCompletions:
+    """Stands in for client.chat.completions; records every request, never touches the network."""
+
+    def __init__(self, content=None, finish_reason="stop", refusal=None, delay=0.0, raises=None, choices=_UNSET):
+        self.content, self.finish_reason, self.refusal = content, finish_reason, refusal
+        self.delay, self.raises, self.choices = delay, raises, choices
         self.calls: list[dict] = []
 
     async def create(self, **kwargs):
@@ -29,55 +34,107 @@ class FakeMessages:
             raise self.raises
         if self.delay:
             await asyncio.sleep(self.delay)
-        content = [SimpleNamespace(type="thinking", thinking="")]
-        if self.text is not None:
-            content.append(SimpleNamespace(type="text", text=self.text))
-        return SimpleNamespace(stop_reason=self.stop_reason, content=content)
+        if self.choices is not _UNSET:
+            return SimpleNamespace(choices=self.choices)
+        message = SimpleNamespace(role="assistant", content=self.content, refusal=self.refusal)
+        return SimpleNamespace(choices=[SimpleNamespace(index=0, finish_reason=self.finish_reason, message=message)])
 
 
-def fake_client(monkeypatch, payload=None, **kw):
+def fake_client(monkeypatch, payload=None, **kw) -> FakeCompletions:
     text = payload if isinstance(payload, str) or payload is None else json.dumps(payload, ensure_ascii=False)
-    beta, std = FakeMessages(text, **kw), FakeMessages(text, **kw)
-    client = SimpleNamespace(beta=SimpleNamespace(messages=beta), messages=std)
+    completions = FakeCompletions(text, **kw)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     monkeypatch.setattr(note_llm, "_client", lambda: client)
-    return beta, std
+    return completions
 
 
 @pytest.fixture(autouse=True)
 def api_key(monkeypatch):
-    monkeypatch.delenv("NOTE_LLM_MODEL", raising=False)
-    monkeypatch.delenv("NOTE_LLM_TIMEOUT_S", raising=False)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    for name in ("NOTE_LLM_MODEL", "NOTE_LLM_TIMEOUT_S", "OPENAI_MODEL", "OPENAI_REASONING_EFFORT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("NOTE_LLM_ENABLED", "true")
-    monkeypatch.setenv("NOTE_LLM_SERVER_FALLBACK", "true")
 
 
 async def test_valid_note_is_used(monkeypatch):
-    beta, _ = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+    fake_client(monkeypatch, GOOD)
     note, source = await note_llm.post_set_note(METRICS, RULE)
-    assert source == "llm" and note == {"ml": GOOD_ML, "en": GOOD_EN}
+    assert source == "llm" and note == GOOD
 
 
-async def test_request_shape_with_server_fallback(monkeypatch):
-    beta, std = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+async def test_request_shape(monkeypatch):
+    fake = fake_client(monkeypatch, GOOD)
     await note_llm.post_set_note(METRICS, RULE)
-    req = beta.calls[0]
-    assert not std.calls
-    assert req["model"] == "claude-sonnet-5-5"
-    assert req["thinking"] == {"type": "between_tools"}
-    assert req["output_config"]["effort"] == "low"
-    assert req["output_config"]["format"]["type"] == "json_schema"
-    assert req["betas"] == ["server-side-fallback-2026-07-01"] and req["fallbacks"] == "default"
-    sent = json.loads(req["messages"][0]["content"])
+    req = fake.calls[0]
+    assert req["model"] == "gpt-5-mini"
+    assert req["reasoning_effort"] == "minimal"
+    assert req["max_completion_tokens"] == 800
+    assert "temperature" not in req and "max_tokens" not in req
+    rf = req["response_format"]
+    assert rf["type"] == "json_schema"
+    assert rf["json_schema"]["strict"] is True and rf["json_schema"]["schema"] == note_llm.NOTE_SCHEMA
+    assert rf["json_schema"]["name"]
+    system, user = req["messages"]
+    assert system == {"role": "system", "content": note_llm.SYSTEM}
+    assert user["role"] == "user"
+    sent = json.loads(user["content"])
     assert sent == METRICS and "name" not in sent           # metrics only, no personal data
 
 
-async def test_without_server_fallback_uses_standard_endpoint(monkeypatch):
-    monkeypatch.setenv("NOTE_LLM_SERVER_FALLBACK", "false")
-    beta, std = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+@pytest.mark.parametrize("model", ["gpt-4.1-mini", "gpt-4o"])
+async def test_effort_omitted_for_non_reasoning_models(monkeypatch, model):
+    monkeypatch.setenv("OPENAI_MODEL", model)
+    fake = fake_client(monkeypatch, GOOD)
     _, source = await note_llm.post_set_note(METRICS, RULE)
-    assert source == "llm" and not beta.calls
-    assert "betas" not in std.calls[0] and "fallbacks" not in std.calls[0]
+    assert source == "llm"
+    assert fake.calls[0]["model"] == model and "reasoning_effort" not in fake.calls[0]
+
+
+@pytest.mark.parametrize("model", ["gpt-5", "gpt-5-mini", "gpt-5.2", "o4-mini", "o3"])
+def test_effort_sent_for_reasoning_models(monkeypatch, model):
+    monkeypatch.setenv("OPENAI_MODEL", model)
+    assert note_llm.build_request(METRICS)["reasoning_effort"] == "minimal"
+
+
+@pytest.mark.parametrize(("value", "expected"), [("low", "low"), ("", "minimal"), ("  ", "minimal"),
+                                                 ("omit", None)])
+def test_effort_env(monkeypatch, value, expected):
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", value)
+    assert note_llm.build_request(METRICS).get("reasoning_effort") == expected
+
+
+@pytest.mark.parametrize("kw", [
+    {"finish_reason": "length"},
+    {"finish_reason": "content_filter"},
+    {"refusal": "I can't help with that."},
+])
+async def test_incomplete_or_refused_completion_falls_back(monkeypatch, kw):
+    fake_client(monkeypatch, GOOD, **kw)
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+@pytest.mark.parametrize("content", [None, "", "   "])
+async def test_empty_content_falls_back(monkeypatch, content):
+    fake_client(monkeypatch, content)
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+async def test_no_choice_falls_back(monkeypatch):
+    fake_client(monkeypatch, GOOD, choices=[])
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+async def test_api_connection_error_falls_back(monkeypatch):
+    openai = pytest.importorskip("openai")
+    import httpx
+    err = openai.APIConnectionError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+    fake_client(monkeypatch, raises=err)
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+
+
+async def test_any_exception_falls_back(monkeypatch):
+    fake_client(monkeypatch, raises=RuntimeError("boom"))
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
 
 
 @pytest.mark.parametrize("payload", [
@@ -109,31 +166,21 @@ async def test_correct_tempo_number_is_allowed(monkeypatch):
 
 async def test_timeout_falls_back(monkeypatch):
     monkeypatch.setenv("NOTE_LLM_TIMEOUT_S", "0.05")
-    fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN}, delay=1.0)
+    fake_client(monkeypatch, GOOD, delay=1.0)
     assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
 
 
-@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
-async def test_non_end_turn_stop_reason_falls_back(monkeypatch, stop_reason):
-    fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN}, stop_reason=stop_reason)
-    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
-
-
-async def test_missing_text_block_falls_back(monkeypatch):
-    fake_client(monkeypatch, None)                           # only a thinking block comes back
-    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
-
-
-async def test_network_error_falls_back(monkeypatch):
-    import httpx
-    err = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
-    fake_client(monkeypatch, raises=err)
-    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+@pytest.mark.parametrize(("value", "expected"), [("", 3.5), ("abc", 3.5), ("0", 3.5), ("-1", 3.5),
+                                                 ("nan", 3.5), ("2.5", 2.5)])
+def test_timeout_env_falls_back_to_default(monkeypatch, value, expected):
+    monkeypatch.setenv("NOTE_LLM_TIMEOUT_S", value)
+    assert note_llm._timeout_s() == expected
 
 
 @pytest.mark.parametrize("kw", [
     {"payload": "not json"},
-    {"payload": {"ml": GOOD_ML, "en": GOOD_EN}, "stop_reason": "refusal"},
+    {"payload": GOOD, "refusal": "no"},
+    {"payload": GOOD, "finish_reason": "length"},
     {"payload": {"ml": GOOD_ML, "en": GOOD_EN + " See a doctor."}},
 ])
 async def test_rule_fallback_is_instant(monkeypatch, kw):
@@ -145,25 +192,39 @@ async def test_rule_fallback_is_instant(monkeypatch, kw):
     assert time.perf_counter() - t0 < 0.1
 
 
-async def test_model_env_override(monkeypatch):
-    monkeypatch.setenv("NOTE_LLM_MODEL", "claude-test-model")
-    beta, _ = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+@pytest.mark.parametrize(("note_model", "openai_model", "expected"), [
+    (None, None, "gpt-5-mini"),
+    (None, "gpt-5", "gpt-5"),
+    ("gpt-4.1-mini", "gpt-5", "gpt-4.1-mini"),               # NOTE_LLM_MODEL wins
+    ("", "gpt-5", "gpt-5"),                                  # empty means unset
+    (None, "", "gpt-5-mini"),                                # empty OPENAI_MODEL -> default
+    ("", "", "gpt-5-mini"),
+])
+async def test_model_env_precedence(monkeypatch, note_model, openai_model, expected):
+    for name, value in (("NOTE_LLM_MODEL", note_model), ("OPENAI_MODEL", openai_model)):
+        if value is not None:
+            monkeypatch.setenv(name, value)
+    fake = fake_client(monkeypatch, GOOD)
     await note_llm.post_set_note(METRICS, RULE)
-    assert beta.calls[0]["model"] == "claude-test-model"
+    assert fake.calls[0]["model"] == expected
 
 
-async def test_no_api_key_skips_the_network(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
-    beta, std = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+@pytest.mark.parametrize("key", [None, "", "  "])
+async def test_no_api_key_skips_the_network(monkeypatch, key):
+    if key is None:
+        monkeypatch.delenv("OPENAI_API_KEY")
+    else:
+        monkeypatch.setenv("OPENAI_API_KEY", key)
+    fake = fake_client(monkeypatch, GOOD)
     assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
-    assert not beta.calls and not std.calls
+    assert not fake.calls
 
 
 async def test_disabled_flag_skips_the_network(monkeypatch):
     monkeypatch.setenv("NOTE_LLM_ENABLED", "false")
-    beta, _ = fake_client(monkeypatch, {"ml": GOOD_ML, "en": GOOD_EN})
+    fake = fake_client(monkeypatch, GOOD)
     assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
-    assert not beta.calls
+    assert not fake.calls
 
 
 def test_metrics_input_suggested_next_step():
@@ -174,7 +235,16 @@ def test_metrics_input_suggested_next_step():
         "keepReps": 10, "slowly": True}
 
 
+async def test_rules_path_never_builds_a_client(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.setattr(note_llm, "_CLIENT", None)
+    assert await note_llm.post_set_note(METRICS, RULE) == (RULE, "rules")
+    assert note_llm._CLIENT is None
+
+
 def test_client_is_built_lazily(monkeypatch):
+    openai = pytest.importorskip("openai")
     monkeypatch.setattr(note_llm, "_CLIENT", None)
     c = note_llm._client()
-    assert isinstance(c, anthropic.AsyncAnthropic) and note_llm._client() is c
+    assert isinstance(c, openai.AsyncOpenAI) and note_llm._client() is c
+    assert c.max_retries == 0

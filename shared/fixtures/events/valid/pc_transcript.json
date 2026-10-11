@@ -1,0 +1,11 @@
+{
+  "type": "pc.transcript",
+  "v": 1,
+  "eventId": "evt_0001abcd",
+  "ts": 1791700000000,
+  "role": "coach",
+  "turnId": "resp_0001",
+  "text": "നന്നായി ചെയ്തു, ഇനി അൽപ്പം വിശ്രമിക്കൂ.",
+  "final": true,
+  "lang": "ml"
+}

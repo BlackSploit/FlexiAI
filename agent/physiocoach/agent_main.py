@@ -5,6 +5,10 @@
 Joins the existing call, publishes the annotated tile, runs the call-flow state machine (call/flow.py),
 speaks Malayalam through the Speaker with physio barge-in, and reports to the web through the outbox.
 The process exit code is the flow's (0 normal, 3 patient never joined, 4 patient left, 5 no consent).
+
+Live Coach (WP1a): with OPENAI_API_KEY set and LIVE_COACH not off, the agent runs an OpenAI Realtime voice
+coach next to the cached clips (call/live_coach.py, call/live_coach_rt.py). With LIVE_COACH=off, no key, or
+ANY error while building live mode, the agent runs exactly today's deterministic path (NoLLM, clips only).
 """
 
 import argparse
@@ -27,6 +31,7 @@ from .call.edge import NoChatEdge
 from .call.flow import Flow, FlowTiming
 from .call.heartbeat import heartbeat
 from .call.inputs import InputRouter, hook_custom_events, redis_inputs
+from .call.live_coach import CoachFacade, LiveCoach, LiveCoachSettings, resolve_live_coach_settings
 from .call.no_llm import NoLLM
 from .call.outbox import MemoryStore, Outbox, RedisStore
 from .call.processor import PoseProcessor
@@ -66,6 +71,57 @@ def resolve_clip(name: Optional[str]) -> Path:
     return path
 
 
+class LiveParts:
+    """Everything live mode adds; built in one try block so any failure falls back to today's path."""
+
+    def __init__(self, cfg: SessionConfig, settings: LiveCoachSettings, pose: PoseProcessor, tts):
+        from .call.coach_prompt import build_instructions
+        from .call.live_coach_rt import CoachAgent, DirectClipPlayer, LiveCoachRealtime, register_tools
+
+        self.settings = settings
+        self._agent = None
+
+        async def send_real(payload: dict) -> None:            # the real agent, not the facade (no re-observe)
+            await self._agent.send_custom_event(payload)
+
+        self.coach = LiveCoach(cfg, settings, send_real)
+        self.llm = LiveCoachRealtime(self.coach, settings)
+        self.tools = register_tools(self.llm, self.coach)
+        self.agent = CoachAgent(
+            edge=NoChatEdge(),
+            llm=self.llm,
+            agent_user=User(id=cfg.agentUserId, name="PhysioCoach"),
+            instructions=build_instructions(cfg),
+            tts=tts,                                           # dropped by Agent in realtime mode (B8)
+            processors=[pose],
+        )
+        self._agent = self.agent
+        self.facade = CoachFacade(self.agent, DirectClipPlayer(tts, self.agent), self.coach)
+        self.coach.attach_port(self.llm)
+
+
+def build_live(cfg: SessionConfig, settings: LiveCoachSettings, pose: PoseProcessor, tts) -> Optional[LiveParts]:
+    if not settings.enabled:
+        (log.warning if settings.warn else log.info)("live coach off: %s", settings.reason)
+        return None
+    try:
+        live = LiveParts(cfg, settings, pose, tts)
+    except Exception as e:  # noqa: BLE001 - fallback is sacred: any failure -> today's deterministic path
+        log.warning("live coach could not be built (%s: %s): clips only", type(e).__name__, e)
+        return None
+    # Realtime transcripts would otherwise be logged at INFO (patient speech in logs, H2).
+    logging.getLogger("vision_agents.core.agents.inference.realtime_flow").setLevel(logging.WARNING)
+    log.info("live coach on (%s): model %s, voice %s, set_listen=%s, barge_in=%s, video=%s (stills: WP1b)",
+             settings.reason, settings.realtime_model, settings.voice, settings.set_listen, settings.barge_in,
+             settings.video)
+    return live
+
+
+def note_llm_enabled() -> bool:
+    """Milestone 6 is done: on unless NOTE_LLM_ENABLED is set to something other than "true" (empty = unset)."""
+    return (os.getenv("NOTE_LLM_ENABLED") or "").strip().lower() in ("", "true")
+
+
 async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
     pose = PoseProcessor(
         backend_factory_from_env(),
@@ -76,14 +132,18 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
     pose.patient_user_id = cfg.patient.id
     clip = resolve_clip(cfg.clip) if cfg.mode == "replay" else None
     tts, duration_of = build_tts()
-    agent = Agent(
-        edge=NoChatEdge(),
-        llm=NoLLM(),                                   # llm= is mandatory; never used for generation
-        agent_user=User(id=cfg.agentUserId, name="PhysioCoach"),
-        instructions="Deterministic exercise coach. Never used for generation.",
-        tts=tts,
-        processors=[pose],
-    )
+    live = build_live(cfg, resolve_live_coach_settings(os.environ), pose, tts)
+    if live is not None:
+        agent = live.agent
+    else:
+        agent = Agent(
+            edge=NoChatEdge(),
+            llm=NoLLM(),                                   # llm= is mandatory; never used for generation
+            agent_user=User(id=cfg.agentUserId, name="PhysioCoach"),
+            instructions="Deterministic exercise coach. Never used for generation.",
+            tts=tts,
+            processors=[pose],
+        )
     log.info("session %s (%s), patient language %s: audio is Malayalam for every patient (DEV-16)",
              cfg.sessionId, cfg.mode, cfg.patient.lang)
 
@@ -96,9 +156,27 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
         # Clears the flow's TTS input/output queues AND flushes the audio track (private, pinned 0.6.9).
         await agent._flow.interrupt()
 
-    speaker = Speaker(agent, duration_of, interrupt_audio)
+    if live is not None:
+        speaker = Speaker(live.facade, duration_of, interrupt_audio, hold=live.coach.hold,
+                          before_play=live.coach.before_clip)
+    else:
+        speaker = Speaker(agent, duration_of, interrupt_audio)
+    flow_agent = live.facade if live is not None else agent
     vad_pool = await LeanSileroVADSessionPool.load(str(models_dir()))
-    barge = PhysioBargeIn(cfg.physioId, vad_pool.session(), speaker.physio_started, speaker.physio_stopped,
+    if live is not None:
+        coach = live.coach
+
+        async def physio_started() -> None:
+            await speaker.physio_started()
+            await coach.on_physio_started()
+
+        def physio_stopped() -> None:                     # synchronous: PhysioBargeIn calls it without await (B3)
+            speaker.physio_stopped()
+            coach.on_physio_stopped()
+        on_start, on_stop = physio_started, physio_stopped
+    else:
+        on_start, on_stop = speaker.physio_started, speaker.physio_stopped
+    barge = PhysioBargeIn(cfg.physioId, vad_pool.session(), on_start, on_stop,
                           BargeInDetector(min_rms=float(os.getenv("BARGEIN_MIN_RMS", "0.02"))))
 
     async def prefetch(text: str) -> bool:
@@ -119,12 +197,14 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
         reason = await redis.get(f"pc:stop_reason:{cfg.sessionId}")
         return reason not in (b"restart", "restart")
 
-    llm_on = os.getenv("NOTE_LLM_ENABLED", "false") == "true"        # off until Milestone 6
-    flow = Flow(agent, pose, cfg, speaker, outbox, timing=FlowTiming.from_env(),
+    llm_on = note_llm_enabled()
+    flow = Flow(flow_agent, pose, cfg, speaker, outbox, timing=FlowTiming.from_env(),
                 note_fn=post_set_note if llm_on else None, prefetch=prefetch,
                 host=os.getenv("WORKER_HOST", socket.gethostname()), pid=os.getpid(),
                 attach_replay=(lambda: pose.attach_file(str(clip))) if clip else None, bye_allowed=bye_allowed)
     router = InputRouter(flow, cfg.patient.id, cfg.physioId, cfg.agentUserId)
+    if live is not None:
+        live.coach.bind(flow, router, speaker, pose)
 
     @agent.events.subscribe
     async def _ended(e: CallEndedEvent):
@@ -133,7 +213,10 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
 
     @agent.events.subscribe
     async def _audio(e: AudioReceivedEvent):
-        await barge.feed(e.participant.user_id if e.participant else None, e.pcm_data)
+        uid = e.participant.user_id if e.participant else None
+        await barge.feed(uid, e.pcm_data)
+        if live is not None and uid == cfg.patient.id:
+            live.llm.feed_patient_audio(e.participant, e.pcm_data)      # non-blocking, ordered, gated
 
     @agent.events.subscribe
     async def _people(e: ParticipantJoinedEvent | ParticipantLeftEvent):
@@ -159,6 +242,12 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
     await pose.warmup()
     call = await agent.create_call(cfg.callType, cfg.callId)        # get_or_create: an existing call is fine
     tasks = [asyncio.create_task(outbox.run()), asyncio.create_task(speaker.run())]
+    if live is not None:
+        tasks.append(asyncio.create_task(live.coach.run()))
+        try:
+            await tts.start()                                   # Agent never starts the TTS in realtime mode (B8)
+        except Exception as e:  # noqa: BLE001 - clips still work without the runtime TTS
+            log.warning("TTS start failed: %s", e)
     if redis:
         tasks += [asyncio.create_task(heartbeat(redis, cfg.sessionId, lambda: len(flow.completed_sets))),
                   asyncio.create_task(redis_inputs(redis, cfg.sessionId, router.handle))]
@@ -174,6 +263,11 @@ async def amain(cfg: SessionConfig, max_seconds: Optional[float] = None) -> int:
     finally:
         for t in tasks:
             t.cancel()
+        if live is not None:
+            try:
+                await tts.close()                               # and never closes it either (B8)
+            except Exception as e:  # noqa: BLE001
+                log.debug("TTS close failed: %s", e)
         await outbox.aclose()
         if redis:
             await redis.aclose()

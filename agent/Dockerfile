@@ -45,7 +45,19 @@ COPY agent/ ./
 RUN uv sync --frozen --no-default-groups --group call $( [ "$INSTALL_DEV" = "1" ] && echo "--group dev" )
 COPY shared/ /app/shared/
 
-ENV PC_SHARED_DIR=/app/shared \
+# 4) offline fallback voice. Rendered clips are not in git, so a clean (Dokploy) build renders the espeak-ng
+#    Malayalam catalogue into /opt/voice (outside /app/agent, so the dev bind mount does not hide it).
+#    Pass --build-arg RENDER_DEV_VOICE=0 when a real rendered voice is baked in some other way.
+ARG RENDER_DEV_VOICE=1
+RUN if [ "$RENDER_DEV_VOICE" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends espeak-ng && rm -rf /var/lib/apt/lists/* \
+      && PC_SHARED_DIR=/app/shared /opt/venv/bin/python -m physiocoach.voice.render_catalogue \
+           --provider espeak --out /opt/voice --concurrency 8; \
+    fi
+
+ENV PC_VOICE_ASSETS=/opt/voice \
+    VOICE_SLUG=dev-espeak-ml \
+    PC_SHARED_DIR=/app/shared \
     UV_NO_SYNC=1 \
     PATH=/opt/venv/bin:$PATH \
     YOLO_OFFLINE=1

@@ -2,48 +2,86 @@
 
 Input is set metrics only (no name, phone or other personal data). Output is ONLY {"ml", "en"},
 validated for shape and semantics (Malayalam ratio, 2-3 sentences, numbers from the input only,
-deny-list). Called with the Anthropic SDK directly, not through the Vision Agents `llm=` slot.
+deny-list). Called with the OpenAI SDK directly (Chat Completions, strict json_schema), not through
+the Vision Agents `llm=` slot.
+
+Env (a set-but-empty variable counts as unset; unparsable numbers fall back to the default):
+  OPENAI_API_KEY           gate: without it the rule note is used and nothing touches the network
+  NOTE_LLM_ENABLED         "true" (default) or anything else to disable
+  NOTE_LLM_MODEL           note-only model override; else OPENAI_MODEL; else "gpt-5-mini"
+  OPENAI_REASONING_EFFORT  default "minimal"; sent only to reasoning models (gpt-5*, o<digit>*);
+                           "omit" leaves the parameter out
+  NOTE_LLM_TIMEOUT_S       total budget in seconds, default 3.5
 """
 
 import asyncio
 import json
 import logging
+import math
 import os
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import anthropic
 from pydantic import BaseModel, ConfigDict, Field
 
 from .coach_rules import next_more_reps, split_sentences
 from .scoring import SetMetrics
 
+if TYPE_CHECKING:
+    import openai
+
 log = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-5-5"   # the user's choice (§8.9); NOTE_LLM_MODEL overrides it
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
+DEFAULT_MODEL = "gpt-5-mini"
+DEFAULT_EFFORT = "minimal"
+DEFAULT_TIMEOUT_S = 3.5
+MAX_COMPLETION_TOKENS = 800          # includes reasoning tokens on reasoning models
+_REASONING_MODEL = re.compile(r"^(gpt-5|o\d)")
+
+
+def _env(name: str) -> str | None:
+    """A set-but-empty (or whitespace-only) variable means unset."""
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
+    return value.strip()
 
 
 def _model() -> str:
-    return os.getenv("NOTE_LLM_MODEL") or MODEL
+    return _env("NOTE_LLM_MODEL") or _env("OPENAI_MODEL") or DEFAULT_MODEL
+
+
+def _reasoning_effort(model: str) -> str | None:
+    """None means: do not send `reasoning_effort` (non-reasoning model, or OPENAI_REASONING_EFFORT=omit)."""
+    if not _REASONING_MODEL.match(model.lower()):
+        return None
+    effort = (_env("OPENAI_REASONING_EFFORT") or DEFAULT_EFFORT).lower()
+    return None if effort == "omit" else effort
 
 
 def _timeout_s() -> float:
-    return float(os.getenv("NOTE_LLM_TIMEOUT_S", "3.5"))
+    try:
+        value = float(_env("NOTE_LLM_TIMEOUT_S") or DEFAULT_TIMEOUT_S)
+    except ValueError:
+        return DEFAULT_TIMEOUT_S
+    return value if math.isfinite(value) and value > 0 else DEFAULT_TIMEOUT_S
 
 
-def _server_fallback() -> bool:
-    return os.getenv("NOTE_LLM_SERVER_FALLBACK", "true") == "true"
+def _enabled() -> bool:
+    return (_env("NOTE_LLM_ENABLED") or "true").lower() == "true"
 
 
-_CLIENT: anthropic.AsyncAnthropic | None = None
+_CLIENT: "openai.AsyncOpenAI | None" = None
 
 
-def _client() -> anthropic.AsyncAnthropic:
-    """Built on first use: constructing it needs ANTHROPIC_API_KEY, and the rules path never does."""
+def _client() -> "openai.AsyncOpenAI":
+    """Built on first use: constructing it needs OPENAI_API_KEY, and the rules path never does.
+    The import is lazy too, so physiocoach.core stays importable where openai is not installed."""
     global _CLIENT
     if _CLIENT is None:
-        _CLIENT = anthropic.AsyncAnthropic(timeout=_timeout_s(), max_retries=0)   # stay inside the budget
+        import openai
+
+        _CLIENT = openai.AsyncOpenAI(timeout=_timeout_s(), max_retries=0)   # stay inside the budget
     return _CLIENT
 
 
@@ -130,30 +168,47 @@ def validate_note(note: NoteOut, metrics: dict[str, Any]) -> None:
             raise ValueError("deny-listed ml term")
 
 
-async def _call_llm(metrics: dict[str, Any]) -> NoteOut:
+def build_request(metrics: dict[str, Any]) -> dict[str, Any]:
+    """The exact Chat Completions kwargs (shared with devtools.check_openai). No temperature: reasoning
+    models reject it."""
+    model = _model()
     req: dict[str, Any] = dict(
-        model=_model(), max_tokens=600, system=SYSTEM,
-        thinking={"type": "between_tools"},                  # thinking off on Sonnet 5.5; "disabled" is a 400
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": NOTE_SCHEMA}},
-        messages=[{"role": "user", "content": json.dumps(metrics, ensure_ascii=False)}],
+        model=model,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+        messages=[{"role": "system", "content": SYSTEM},
+                  {"role": "user", "content": json.dumps(metrics, ensure_ascii=False)}],
+        response_format={"type": "json_schema",
+                         "json_schema": {"name": "post_set_note", "strict": True, "schema": NOTE_SCHEMA}},
     )
-    client = _client()
-    if _server_fallback():
-        # Claude API only. A between_tools request that falls back to Sonnet 5 runs there with thinking disabled.
-        resp = await client.beta.messages.create(**req, betas=[FALLBACK_BETA], fallbacks="default")
-    else:
-        resp = await client.messages.create(**req)
-    if resp.stop_reason != "end_turn":                       # "refusal", "max_tokens", ... -> rules
-        raise ValueError(f"stop_reason={resp.stop_reason}")
-    text = next((b.text for b in resp.content if b.type == "text"), None)
-    if text is None:
-        raise ValueError("no text block")
+    effort = _reasoning_effort(model)
+    if effort is not None:
+        req["reasoning_effort"] = effort
+    return req
+
+
+def parse_completion(resp: Any) -> NoteOut:
+    """Raises on anything but a complete, non-refused JSON answer (the caller falls back to rules)."""
+    if not getattr(resp, "choices", None):
+        raise ValueError("no choice")
+    choice = resp.choices[0]
+    if choice.finish_reason != "stop":                       # "length", "content_filter", ... -> rules
+        raise ValueError(f"finish_reason={choice.finish_reason}")
+    if getattr(choice.message, "refusal", None):
+        raise ValueError("refusal")
+    text = choice.message.content
+    if not text or not text.strip():
+        raise ValueError("empty content")
     return NoteOut.model_validate_json(text)
+
+
+async def _call_llm(metrics: dict[str, Any]) -> NoteOut:
+    resp = await _client().chat.completions.create(**build_request(metrics))
+    return parse_completion(resp)
 
 
 async def post_set_note(metrics: dict[str, Any], rule_note: dict[str, str]) -> tuple[dict[str, str], str]:
     """Returns (note, source). rule_note is already computed (instant fallback)."""
-    if os.getenv("NOTE_LLM_ENABLED", "true") != "true" or not os.getenv("ANTHROPIC_API_KEY"):
+    if not _enabled() or not _env("OPENAI_API_KEY"):
         return rule_note, "rules"
     try:
         note = await asyncio.wait_for(_call_llm(metrics), _timeout_s())

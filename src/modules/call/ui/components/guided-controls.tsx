@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIcon, AlertOctagonIcon, CheckCircle2Icon, HeartPulseIcon, LoaderIcon, MicIcon, MicOffIcon, PhoneOffIcon,
-  ShieldCheckIcon, VideoIcon, VideoOffIcon, Volume2Icon,
+  ShieldCheckIcon, SparklesIcon, VideoIcon, VideoOffIcon, Volume2Icon,
 } from "lucide-react";
 import { useCallStateHooks } from "@stream-io/video-react-sdk";
 
@@ -14,10 +14,15 @@ import { PHASE_LABEL, S } from "../../strings";
 import type { AgentFeed } from "../../hooks/use-agent-events";
 import type { useSendInput } from "../../hooks/use-send-input";
 import { Bi } from "./call-brand";
+import { readLiveCoach } from "./live-coach";
 
 type Send = ReturnType<typeof useSendInput>;
 
-/** Consent (§1.4 #7): no pose analysis until the patient agrees. Re-sent every 2 s until the phase moves on. */
+/**
+ * Consent (§1.4 #7): no pose analysis until the patient agrees. Re-sent every 2 s until the phase moves on.
+ * The D12 live-voice sentence is always shown (it is conditional by wording): the realtime coach may come up
+ * after the patient has already agreed (H5). It is highlighted once the coach is live.
+ */
 export const ConsentBanner = ({ feed, send }: { feed: AgentFeed; send: Send }) => {
   const [agreed, setAgreed] = useState(false);
   useEffect(() => {
@@ -26,12 +31,14 @@ export const ConsentBanner = ({ feed, send }: { feed: AgentFeed; send: Send }) =
     return () => clearInterval(id);
   }, [agreed, feed.phase, send]);
   if (feed.phase !== "await_consent" && feed.phase !== "greeting") return null;
+  const { liveCoach } = readLiveCoach(feed);
   return (
     <div
       role="dialog" aria-modal="false" aria-labelledby="consent-title"
-      className="absolute inset-0 z-20 flex items-end justify-center overflow-y-auto bg-neutral-950/75 p-3 backdrop-blur-sm animate-in fade-in sm:items-center sm:p-6"
+      className="absolute inset-0 z-20 flex flex-col items-center overflow-y-auto overscroll-contain bg-neutral-950/75 p-3 backdrop-blur-sm animate-in fade-in sm:p-6"
     >
-      <div className="flex w-full max-w-md flex-col gap-4 rounded-2xl border bg-card p-5 text-card-foreground shadow-2xl animate-in slide-in-from-bottom-4 sm:p-6">
+      {/* Auto margins (not items-end) so a card taller than a small phone stays scrollable to its top. */}
+      <div className="mt-auto flex w-full max-w-md flex-col gap-4 rounded-2xl border bg-card p-5 text-card-foreground shadow-2xl animate-in slide-in-from-bottom-4 sm:my-auto sm:p-6">
         <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
           <ShieldCheckIcon className="size-6" aria-hidden />
         </span>
@@ -41,14 +48,30 @@ export const ConsentBanner = ({ feed, send }: { feed: AgentFeed; send: Send }) =
         <p className="text-sm">
           <Bi t={S.consentBody} mlClassName="text-base leading-relaxed" enClassName="mt-1 text-muted-foreground opacity-100" />
         </p>
-        <Button size="lg" className="min-h-16 w-full rounded-xl text-lg font-semibold" disabled={!feed.ready || agreed}
-          onClick={() => {
-            setAgreed(true);
-            void send({ type: "pc.consent", agreed: true });
-          }}>
-          {agreed ? <CheckCircle2Icon className="size-6" /> : !feed.ready ? <LoaderIcon className="size-5 animate-spin" /> : null}
-          <Bi t={agreed ? S.agreedWaiting : S.agree} className="items-start" enClassName="text-sm font-normal" />
-        </Button>
+        <div className={cn("flex gap-3 rounded-xl border p-3 transition-colors",
+          liveCoach ? "border-primary/40 bg-primary/5" : "border-border bg-muted/50")}>
+          <SparklesIcon className={cn("mt-0.5 size-5 shrink-0", liveCoach ? "text-primary" : "text-muted-foreground")} aria-hidden />
+          <div className="flex min-w-0 flex-col gap-1">
+            {liveCoach && (
+              <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+                <span lang="ml" className="font-ml normal-case tracking-normal">{S.liveCoach.ml}</span> · {S.liveCoach.en}
+              </span>
+            )}
+            <p lang="ml" className="font-ml text-sm leading-relaxed">{S.consentVoice.ml}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{S.consentVoice.en}</p>
+          </div>
+        </div>
+        {/* Sticky on an opaque backing so the button stays reachable while the longer text scrolls. */}
+        <div className="sticky bottom-0 -mx-1 bg-card px-1 pt-1">
+          <Button size="lg" className="min-h-16 w-full rounded-xl text-lg font-semibold" disabled={!feed.ready || agreed}
+            onClick={() => {
+              setAgreed(true);
+              void send({ type: "pc.consent", agreed: true });
+            }}>
+            {agreed ? <CheckCircle2Icon className="size-6" /> : !feed.ready ? <LoaderIcon className="size-5 animate-spin" /> : null}
+            <Bi t={agreed ? S.agreedWaiting : S.agree} className="items-start" enClassName="text-sm font-normal" />
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -178,13 +201,19 @@ export const SymptomButtons = ({ send }: { send: Send }) => {
   );
 };
 
-/** Patient captions: a bottom sheet over the coach video, Malayalam large. */
-export const CaptionsSheet = ({ feed, showEnglish }: { feed: AgentFeed; showEnglish: boolean }) => {
-  const recent = feed.captions.slice(-2);
+/**
+ * Patient captions: a bottom sheet over the coach video, Malayalam large. `embedded` drops the absolute
+ * positioning and gradient so the sheet can sit inside the live-coach dock; `limit` caps the lines shown.
+ */
+export const CaptionsSheet = ({ feed, showEnglish, embedded, limit = 2 }: {
+  feed: AgentFeed; showEnglish: boolean; embedded?: boolean; limit?: number;
+}) => {
+  const recent = feed.captions.slice(-limit);
   if (recent.length === 0) return null;
   return (
     <div aria-live="polite"
-      className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-neutral-950 via-neutral-950/85 to-transparent px-3 pb-3 pt-10 sm:px-5 sm:pb-5">
+      className={cn("pointer-events-none",
+        !embedded && "absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-neutral-950 via-neutral-950/85 to-transparent px-3 pb-3 pt-10 sm:px-5 sm:pb-5")}>
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
         {recent.map((c, i) => {
           const latest = i === recent.length - 1;

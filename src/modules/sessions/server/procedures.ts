@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, getTableColumns, ilike, isNull, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
+import { countOf } from "@/db/count";
 import { callSessions, exercises, prescriptions, safetyEvents, setResults, user } from "@/db/schema";
 import { createTRPCRouter, physioProcedure } from "@/trpc/init";
 import {
@@ -31,7 +32,7 @@ const listColumns = {
     minSecondsPerRep: prescriptions.minSecondsPerRep,
   },
   duration: sql<number | null>`EXTRACT(EPOCH FROM (${callSessions.endedAt} - ${callSessions.startedAt}))`.as("duration"),
-  setCount: db.$count(setResults, eq(setResults.callSessionId, callSessions.id)),
+  setCount: countOf(setResults, eq(setResults.callSessionId, callSessions.id)),
   bestScore: sql<number | null>`(select max(sr.score) from set_results sr where sr.call_session_id = ${callSessions.id})`,
   avgPeak: sql<number | null>`(select avg(sr.avg_peak) from set_results sr where sr.call_session_id = ${callSessions.id})`,
   maxPain: sql<number | null>`(select max(sr.pain) from set_results sr where sr.call_session_id = ${callSessions.id})`,

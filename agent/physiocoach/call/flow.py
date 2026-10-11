@@ -11,6 +11,11 @@ state task, so it takes effect within one event-loop tick even during an LLM cal
 Exit codes (§8.14): 0 normal / ended by physio / halted, 3 patient never joined, 4 patient left, 5 no consent.
 
 Pure asyncio: `agent` needs send_custom_event; speaker/pose/outbox are injected (tests use fakes).
+
+Live-coach hooks (inert unless used): `halt_listeners` are called synchronously inside `halt()` (each in
+try/except) so the coach is silenced in the same tick; `halted` / `paused` / `consent_given` / `phase` are
+read directly by the coach's gates; `progress()` is the only source of numbers for the coach;
+`ready_to_continue()` ends a rest early.
 """
 
 import asyncio
@@ -139,6 +144,11 @@ class Flow:
         self._paused = False
         self._physio_announced = False
         self._tasks: set[asyncio.Task] = set()
+        self.halt_listeners: list[Callable[[str], None]] = []
+        self.pain_scores: dict[int, int] = {}
+        self.last_summary: Optional[dict] = None
+        self._ready = asyncio.Event()
+        self._rest_deadline: Optional[float] = None
 
         self.overlay = OverlayState(banner=BANNERS["waiting"], reps_planned=rx.reps, set_index=0,
                                     sets_planned=rx.sets, target=rx.targetAngle, joints=tuple(ex.joints))
@@ -193,6 +203,11 @@ class Flow:
         self._halt_reason, self._halt_event_id = reason, event_id
         self._halt_detail = {"score": score, "symptom": symptom}
         log.warning("SAFETY HALT: %s (event %s)", reason, event_id)
+        for listener in list(self.halt_listeners):
+            try:
+                listener(reason)
+            except Exception as e:  # noqa: BLE001 - a listener must never delay or block the halt
+                log.warning("halt listener failed: %s", e)
         self._interrupt.set()
         if self._main and not self._main.done():
             self._main.cancel()
@@ -221,10 +236,49 @@ class Flow:
     async def on_pain(self, score: int, set_index: int, event_id: str) -> None:
         await self.outbox.post({"type": "pain_recorded", "setIndex": set_index, "score": score,
                                 "clientEventId": event_id})
+        self.pain_scores[set_index] = score
         ev = self._pain.setdefault(set_index, asyncio.Event())
+        already = ev.is_set()
         ev.set()
-        if score < 7 and self.phase == "await_pain":
+        if score < 7 and self.phase == "await_pain" and not already:      # voice + button: thank once
             self.speaker.say_ids(["pain.thanks"], "prompt")
+
+    # ---------------------------------------------------------------- live coach reads
+    @property
+    def halted(self) -> bool:
+        return self._halt_reason is not None
+
+    @property
+    def paused(self) -> bool:
+        return self._paused or not self.patient_present.is_set()
+
+    def ready_to_continue(self) -> bool:
+        """The patient said they are ready: end the current rest early. False outside rest."""
+        if self.phase != "rest" or self.halted:
+            return False
+        self._ready.set()
+        return True
+
+    def progress(self) -> dict:
+        """Numbers the live coach may quote: Flow and RepEngine state only, never estimates."""
+        eng = self.engine
+        reps = list(eng.reps) if eng is not None else []
+        in_set = self.phase in ("countdown", "set", "summary", "await_pain", "rest")
+        value = self.overlay.value
+        return {
+            "phase": self.phase,
+            "set": self.set_index,
+            "setsPlanned": self.rx.sets,
+            "repsDoneThisSet": len(reps) if in_set else 0,
+            "repsPlanned": self.rx.reps,
+            "targetAngle": self.rx.targetAngle,
+            "lastRepPeak": round(reps[-1].peak, 1) if reps and in_set else None,
+            "currentAngle": round(value, 1) if value is not None else None,
+            "completedSets": sorted(self.completed_sets),
+            "lastSet": dict(self.last_summary) if self.last_summary else None,
+            "painScores": {str(k): v for k, v in sorted(self.pain_scores.items())},
+            "halted": self.halted,
+        }
 
     def on_patient_joined(self) -> None:
         self.patient_present.set()
@@ -431,6 +485,9 @@ class Flow:
             note, source = await self.note_fn(note_metrics(m, self.ex.id, self.ex.mode, self.rx.minSecondsPerRep), rule)
             if source == "llm" and not (self.prefetch and await self.prefetch(note["ml"])):
                 note, source = rule, "rules"                     # captions, audio and DB always agree
+        self.last_summary = {"set": self.set_index, "repsDone": m.reps_done, "repsPlanned": m.reps_planned,
+                             "avgPeak": m.avg_peak, "bestPeak": m.best_peak, "fastReps": m.fast_reps,
+                             "score": m.score, "target": self.rx.targetAngle}
         if source == "llm":
             self.speaker.say_text(note["ml"], note["en"], "note")
         else:
@@ -476,9 +533,18 @@ class Flow:
                 log.info("no pain score for set %d: continuing with pain = null", idx)
 
     async def _rest(self) -> None:
+        self._ready.clear()
         await self._enter("rest")
         self.speaker.say_ids(["set.rest"], "prompt")
-        await asyncio.sleep(self.t.rest)
+        self._rest_deadline = self.loop_time() + self.t.rest
+        try:                                                     # interruptible: ready_to_continue / halt
+            while not self._ready.is_set():
+                left = self._rest_deadline - self.loop_time()
+                if left <= 0:
+                    break
+                await self._wait_any(self._ready, left)
+        finally:
+            self._rest_deadline = None
 
     async def _done(self) -> None:
         await self._enter("done")

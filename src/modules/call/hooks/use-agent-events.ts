@@ -5,10 +5,13 @@ import { useCall, type CustomVideoEvent } from "@stream-io/video-react-sdk";
 
 import { AGENT_USER_ID } from "@/constants";
 
-import { AgentToClientEvent } from "../contracts";
+import { AgentToClientEvent, type VoiceState } from "../contracts";
 
 export type Caption = { id: string; ml: string; en: string; kind: string };
 export type RepInfo = { n: number; peak: number; seconds: number; tooFast: boolean; target: number; repsPlanned: number; setIndex: number };
+export type TranscriptItem = { role: "user" | "coach"; turnId: string; text: string; final: boolean; lang?: "ml" | "en" | "other" };
+
+const MAX_TRANSCRIPT = 20;
 
 export type AgentFeed = {
   ready: boolean;
@@ -20,10 +23,14 @@ export type AgentFeed = {
   lastRep: RepInfo | null;
   awaitingPain: boolean;
   alert: { reason: string; score?: number; symptom?: string } | null;
+  transcript: TranscriptItem[];
+  voice: VoiceState;
+  liveCoach: boolean;
 };
 
 export const initialFeed: AgentFeed = {
   ready: false, phase: "", setIndex: 0, setsPlanned: 1, captions: [], reps: [], lastRep: null, awaitingPain: false, alert: null,
+  transcript: [], voice: "off", liveCoach: false,
 };
 
 export function feedReducer(state: AgentFeed, ev: AgentToClientEvent | { type: "local.dismiss_alert" }): AgentFeed {
@@ -51,6 +58,15 @@ export function feedReducer(state: AgentFeed, ev: AgentToClientEvent | { type: "
       return state;
     case "pc.safety_alert":
       return { ...state, alert: { reason: ev.reason, score: ev.score, symptom: ev.symptom }, awaitingPain: false };
+    case "pc.transcript": {
+      // A partial and its final share role + turnId: update in place, else append; keep the last 20.
+      const item: TranscriptItem = { role: ev.role, turnId: ev.turnId, text: ev.text, final: ev.final, lang: ev.lang };
+      const i = state.transcript.findIndex((t) => t.role === ev.role && t.turnId === ev.turnId);
+      const transcript = i >= 0 ? state.transcript.map((t, j) => (j === i ? item : t)) : [...state.transcript, item];
+      return { ...state, transcript: transcript.slice(-MAX_TRANSCRIPT) };
+    }
+    case "pc.voice":
+      return { ...state, voice: ev.state, liveCoach: ev.live };
     case "local.dismiss_alert":
       return { ...state, alert: null };
   }

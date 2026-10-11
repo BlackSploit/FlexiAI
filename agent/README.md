@@ -4,7 +4,7 @@ Python 3.13, managed with [uv](https://docs.astral.sh/uv/).
 
 | Package | What it is | Imports allowed |
 |---|---|---|
-| `physiocoach/core/` | angles, rep engine, scoring, coaching rules, phrases, LLM note, safety, contracts | numpy, pydantic, anthropic, httpx only (runs natively on Windows) |
+| `physiocoach/core/` | angles, rep engine, scoring, coaching rules, phrases, LLM note, safety, contracts | numpy, pydantic, openai, httpx only (runs natively on Windows) |
 | `physiocoach/replay/` | synthetic signals and the offline replay CLI | core (+ pose backends for video, Milestone 2) |
 | `physiocoach/pose/`, `call/`, `voice/`, `control/` | pose backends, Vision Agents call flow, voice, FastAPI supervisor | added in Milestones 2-5; installed in Docker via `--group call` |
 
@@ -29,6 +29,20 @@ docker compose --profile test run --rm agent-worker-test      # full pytest (pos
 
 Stream credentials come from the root `.env` (`NEXT_PUBLIC_STREAM_VIDEO_API_KEY`, `STREAM_VIDEO_SECRET_KEY`),
 mapped to the `STREAM_API_KEY` / `STREAM_API_SECRET` names getstream reads.
+
+OpenAI is optional. `docker-compose.yml` passes `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT`,
+`OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, `NOTE_LLM_ENABLED` and the `LIVE_COACH*` flags from the root `.env`
+to `agent-worker` (not to `agent-worker-test`, whose tests never use the network). An empty value means the default.
+With a key, the post-set note uses the text model (falling back to the rule note) and the Live Coach turns on unless
+`LIVE_COACH=off`. Without a key, the worker behaves exactly as before. Preflight checks (they print whether the key
+is set, never its value):
+
+```bash
+docker compose exec agent-worker python -m physiocoach.devtools.check_openai     # text model + one strict note call
+docker compose exec agent-worker python -m physiocoach.devtools.check_realtime   # realtime session config
+```
+
+Kill switch: set `LIVE_COACH=off` in the root `.env`, then `docker compose up -d agent-worker`.
 
 ### Full call flow on a live call (Milestone 4)
 

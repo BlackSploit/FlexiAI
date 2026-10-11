@@ -14,7 +14,7 @@ export const weeklySummaryLlmSchema = z.object({
 
 export type WeeklySummaryLlm = z.infer<typeof weeklySummaryLlmSchema>;
 
-/** JSON schema sent as `output_config.format` so the model returns exactly this shape. */
+/** JSON schema sent as the strict `response_format.json_schema` (OpenAI Chat Completions) so the model returns exactly this shape. */
 export const WEEKLY_SUMMARY_JSON_SCHEMA = {
   type: "object",
   properties: { textEn: { type: "string" }, textMl: { type: "string" } },

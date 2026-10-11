@@ -113,8 +113,29 @@ class SafetyAlertEvent(_Envelope):
     setIndex: Optional[int] = None
 
 
+VoiceState = Literal["off", "listening", "thinking", "speaking"]
+
+
+class TranscriptEvent(_Envelope):
+    """Live-coach speech transcript; partials and the final for one utterance share role + turnId."""
+    type: Literal["pc.transcript"]
+    role: Literal["user", "coach"]
+    turnId: Annotated[str, Field(min_length=1, max_length=64)]
+    text: Annotated[str, Field(max_length=400)]
+    final: bool
+    lang: Optional[Literal["ml", "en", "other"]] = None
+
+
+class VoiceEvent(_Envelope):
+    """Live-coach voice state; `live` is whether the realtime coach connection is up."""
+    type: Literal["pc.voice"]
+    state: VoiceState
+    live: bool
+
+
 AgentToClientEvent = Annotated[
-    Union[ReadyEvent, StateEvent, RepEvent, CaptionEvent, SetSummaryEvent, RequestPainEvent, SafetyAlertEvent],
+    Union[ReadyEvent, StateEvent, RepEvent, CaptionEvent, SetSummaryEvent, RequestPainEvent, SafetyAlertEvent,
+          TranscriptEvent, VoiceEvent],
     Field(discriminator="type")]
 agent_event_adapter: TypeAdapter = TypeAdapter(AgentToClientEvent)
 

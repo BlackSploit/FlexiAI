@@ -6,141 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from physiocoach.call.flow import Flow, FlowTiming
-from physiocoach.call.inputs import InputRouter
-from physiocoach.call.speaker import Speaker
+from conftest import FAST, config, to_set  # noqa: F401  (rig fixture: tests/call/conftest.py)
+
+from physiocoach.call.flow import FlowTiming
 from physiocoach.core import phrases
-from physiocoach.core.contracts import StartAgentRequest
-from physiocoach.pose.base import FrameMeta
-from physiocoach.replay import synthetic
-
-FAST = FlowTiming(patient_join=1.0, consent_reask=0.15, consent_timeout=0.4, positioning_prompt=0.3,
-                  positioning_max=2.0, positioned_hold=2.0, idle_after_rep=1.5, idle_no_rep=1.5, pain_reask=0.1,
-                  pain_timeout=0.2, rest=0.05, patient_return=0.3, cant_see_after=5.0, ready_every=0.05,
-                  say_bye_max=0.1, outbox_drain=0.1)
-META = FrameMeta(1280, 720, 120.0)
-
-
-def config(**over) -> StartAgentRequest:
-    base = dict(sessionId="s1", callType="default", callId="s1", agentUserId="agent",
-                patient={"id": "pat", "name": "P", "lang": "ml"}, physioId="phy",
-                exercise={"id": "knee_bend", "joints": ("hip", "knee", "ankle"), "mode": "flex", "rest": 15,
-                          "start": 25, "minPeak": 35, "cameraView": "side"},
-                prescription={"side": "auto", "targetAngle": 60, "reps": 10, "sets": 1, "minSecondsPerRep": 2},
-                mode="live")
-    base.update(over)
-    return StartAgentRequest.model_validate(base)
-
-
-class FakeAgent:
-    def __init__(self):
-        self.said: list[str] = []
-        self.events: list[dict] = []
-
-    async def say(self, text, interrupt=False):
-        self.said.append(text)
-
-    async def send_custom_event(self, payload):
-        self.events.append(payload)
-
-    def types(self, t: str) -> list[dict]:
-        return [e for e in self.events if e["type"] == t]
-
-
-class FakeOutbox:
-    def __init__(self):
-        self.posted: list[dict] = []
-
-    async def post(self, event):
-        self.posted.append(event)
-        return "id"
-
-    async def drain(self, timeout):
-        return True
-
-    def of(self, t: str) -> list[dict]:
-        return [e for e in self.posted if e["type"] == t]
-
-
-class FakePose:
-    def __init__(self):
-        self.enabled = False
-        self.overlay = None
-        self.on_keypoints = None
-        self.frames_while_disabled = 0
-        self.attached = None
-
-    async def attach_file(self, path):
-        self.attached = path
-
-
-class Rig:
-    def __init__(self, cfg=None, timing=FAST, peak=65.0, clip_s=0.0, **flow_kw):
-        self.agent, self.outbox, self.pose = FakeAgent(), FakeOutbox(), FakePose()
-        self.interrupts = 0
-
-        async def interrupt():
-            self.interrupts += 1
-
-        self.speaker = Speaker(self.agent, lambda t: clip_s, interrupt_audio=interrupt)
-        self.cfg = cfg or config()
-        self.flow = Flow(self.agent, self.pose, self.cfg, self.speaker, self.outbox, timing=timing, **flow_kw)
-        self.router = InputRouter(self.flow, "pat", "phy", "agent")
-        self.peak, self.feeding = peak, True
-        self.tasks = [asyncio.create_task(self.speaker.run()), asyncio.create_task(self._feed())]
-        self.run = asyncio.create_task(self.flow.run())
-
-    async def _feed(self):
-        """Like PoseProcessor: frames reach the flow ONLY while pose.enabled (consent gate)."""
-        t, step, period = 0.0, 1 / 12, 3.1 + 1.0
-        while True:
-            await asyncio.sleep(0)
-            if not self.feeding:
-                continue
-            if not self.pose.enabled:
-                self.pose.frames_while_disabled += 1
-                continue
-            tau = t % period
-            v = synthetic._shape(tau, 3.1, self.peak) if tau < 3.1 else synthetic.BASE
-            await self.flow.on_keypoints(t, synthetic.keypoints(synthetic.Frame(t, v), ("hip", "knee", "ankle"), "flex"), META)
-            t += step
-
-    async def until(self, cond, timeout=8.0):
-        end = time.monotonic() + timeout
-        while not cond():
-            if time.monotonic() > end:
-                raise AssertionError(f"timed out; phases so far: {self.flow.phases}")
-            await asyncio.sleep(0.002)
-
-    async def send(self, sender, type_, **fields):
-        await self.router.handle(sender, {"type": type_, "v": 1, "eventId": f"evt{len(self.agent.events):05d}x",
-                                          "ts": int(time.time() * 1000), **fields})
-
-    async def close(self):
-        for t in self.tasks:
-            t.cancel()
-        if not self.run.done():
-            self.run.cancel()
-
-
-@pytest.fixture
-async def rig():
-    rigs: list[Rig] = []
-
-    def make(**kw):
-        r = Rig(**kw)
-        rigs.append(r)
-        return r
-    yield make
-    for r in rigs:
-        await r.close()
-
-
-async def to_set(r: Rig):
-    r.flow.on_patient_joined()
-    await r.until(lambda: r.flow.phase == "await_consent")
-    await r.send("pat", "pc.consent", agreed=True)
-    await r.until(lambda: r.flow.phase == "set")
 
 
 # ------------------------------------------------------------------ happy path and gates
@@ -421,3 +290,67 @@ async def test_replay_mode_attaches_the_clip_and_auto_consents(rig):
     await r.until(lambda: r.flow.phase == "set")
     assert attached.done and "await_consent" in r.flow.phases and r.outbox.of("consent_given")
     assert phrases.get("consent.ask").ml not in r.agent.said
+
+
+# ------------------------------------------------------------------ live-coach hooks (inert unless used)
+
+async def test_halt_listeners_run_synchronously_inside_halt_and_once(rig):
+    r = rig()
+    await to_set(r)
+    seen: list[tuple[str, bool]] = []
+
+    def broken(reason):
+        raise RuntimeError("listener bug")
+
+    r.flow.halt_listeners += [broken, lambda reason: seen.append((reason, r.flow.halted))]
+    r.flow.halt("stop", "evt-listener-1")
+    assert seen == [("stop", True)]                 # same tick, reason already set, a broken listener ignored
+    r.flow.halt("pain", "evt-listener-2")
+    assert len(seen) == 1                           # idempotent
+    await r.until(lambda: r.flow.phase == "halted")
+
+
+async def test_ready_to_continue_ends_rest_early(rig):
+    r = rig(cfg=config(prescription={"side": "auto", "targetAngle": 60, "reps": 10, "sets": 2, "minSecondsPerRep": 2}),
+            timing=FlowTiming(**{**FAST.__dict__, "rest": 30.0}))
+    await to_set(r)
+    assert r.flow.ready_to_continue() is False       # only during rest
+    await r.until(lambda: r.flow.phase == "await_pain")
+    await r.send("pat", "pc.pain_score", score=1, setIndex=1)
+    await r.until(lambda: r.flow.phase == "rest")
+    t0 = time.monotonic()
+    assert r.flow.ready_to_continue() is True
+    await r.until(lambda: r.flow.phases.count("countdown") == 2)
+    assert time.monotonic() - t0 < 0.05
+
+
+async def test_progress_reports_flow_numbers_only(rig):
+    r = rig()
+    await to_set(r)
+    await r.until(lambda: r.flow.phase == "await_pain")
+    p = r.flow.progress()
+    assert (p["phase"], p["set"], p["setsPlanned"], p["repsPlanned"], p["targetAngle"]) == ("await_pain", 1, 1, 10, 60)
+    assert p["repsDoneThisSet"] == 10 and p["completedSets"] == [1] and p["halted"] is False
+    assert p["lastSet"]["repsDone"] == 10 and p["lastSet"]["score"] == r.agent.types("pc.set_summary")[0]["score"]
+    assert p["lastRepPeak"] == round(r.flow.engine.reps[-1].peak, 1)
+    await r.send("pat", "pc.pain_score", score=2, setIndex=1)
+    await asyncio.wait_for(r.run, 5)
+    assert r.flow.progress()["painScores"] == {"1": 2}
+
+
+async def test_pain_thanks_said_once_for_voice_plus_button(rig):
+    r = rig()
+    await to_set(r)
+    await r.until(lambda: r.flow.phase == "await_pain")
+    await r.flow.on_pain(3, 1, "voice-evt-1")
+    await r.flow.on_pain(3, 1, "button-evt-1")
+    await asyncio.sleep(0.05)
+    assert r.agent.said.count(phrases.get("pain.thanks").ml) <= 1
+    assert len(r.outbox.of("pain_recorded")) == 2
+
+
+async def test_paused_tracks_patient_presence(rig):
+    r = rig()
+    assert r.flow.paused                             # nobody there yet
+    r.flow.on_patient_joined()
+    assert not r.flow.paused

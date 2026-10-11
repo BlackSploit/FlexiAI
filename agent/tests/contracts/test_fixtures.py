@@ -42,7 +42,7 @@ def _types(group: str, kind: str) -> set[str]:
 
 
 def test_every_type_has_a_valid_and_an_invalid_example():
-    assert len(_types("events", "valid")) == 11            # 4 client -> agent + 7 agent -> client
+    assert len(_types("events", "valid")) == 13            # 4 client -> agent + 9 agent -> client
     assert len(_types("agent-callbacks", "valid")) == 7
     for group in ("events", "agent-callbacks"):
         missing = _types(group, "valid") - _types(group, "invalid")

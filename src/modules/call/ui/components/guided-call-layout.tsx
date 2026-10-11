@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { PowerIcon, WifiOffIcon } from "lucide-react";
-import { DefaultParticipantViewUI, ParticipantView, ParticipantsAudio } from "@stream-io/video-react-sdk";
+import { DefaultParticipantViewUI, ParticipantView, ParticipantsAudio, useCallStateHooks } from "@stream-io/video-react-sdk";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,16 @@ import { S } from "../../strings";
 import { useAgentEvents } from "../../hooks/use-agent-events";
 import { useSendInput } from "../../hooks/use-send-input";
 import { useCallPeople } from "../../hooks/use-agent-participant";
+import type { AgentFeed } from "../../hooks/use-agent-events";
 import { PhysioLivePanel } from "./physio-live-panel";
 import { Bi, BrandMark } from "./call-brand";
 import {
   AutoplayUnblock, CaptionsPanel, CaptionsSheet, ConsentBanner, MediaControls, PainScale, PhaseIndicator, RepCounter,
   StopButton, SymptomButtons,
 } from "./guided-controls";
+import {
+  ConversationCard, LiveCoachBadge, MicOffHint, TranscriptBubbles, TranscriptPanel, VoiceStatus, isQuietPhase, readLiveCoach,
+} from "./live-coach";
 
 interface Props {
   info: CallInfo;
@@ -37,6 +41,32 @@ const CoachJoining = () => (
   </div>
 );
 
+/** Phases where the realtime coach can talk with the patient (D2 output gate). */
+const CONVERSATIONAL = new Set(["positioning", "summary", "await_pain", "rest"]);
+
+/**
+ * Patient live-coach dock, pinned to the bottom of the coach video: phone-only chat bubbles (desktop uses the
+ * Conversation card), the mic-off hint, the voice orb with its status line, then the captions. In countdown
+ * and set the bubbles give way to the "coach is quiet while counting" line.
+ */
+const PatientCoachDock = ({ feed, showEnglish }: { feed: AgentFeed; showEnglish: boolean }) => {
+  const { useMicrophoneState } = useCallStateHooks();
+  const mic = useMicrophoneState();
+  const { transcript, voice } = readLiveCoach(feed);
+  const quiet = isQuietPhase(feed.phase);
+  const micHint = mic.optimisticIsMute && CONVERSATIONAL.has(feed.phase);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2.5 bg-gradient-to-t from-neutral-950 via-neutral-950/85 to-transparent px-3 pb-3 pt-8 sm:px-5 sm:pb-5 md:pt-12">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-2.5">
+        {!quiet && <TranscriptBubbles items={transcript} voice={voice} limit={6} className="max-h-[16dvh] md:hidden" />}
+        {micHint && <MicOffHint onEnable={() => void mic.microphone.enable()} />}
+        <VoiceStatus voice={voice} quiet={quiet} />
+        <CaptionsSheet feed={feed} showEnglish={showEnglish} embedded limit={1} />
+      </div>
+    </div>
+  );
+};
+
 /** §10.3: the agent's annotated tile is the main view for both; the physio also sees the raw patient tile. */
 export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
   const { feed, dismissAlert } = useAgentEvents();
@@ -50,6 +80,7 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
   const unrendered = [...others, ...(patient ? [patient] : [])]
     .filter((p) => !p.isLocalParticipant && (isPatient || p.userId !== info.patientId));
   const agentDown = feed.alert?.reason === "agent_down";
+  const coach = readLiveCoach(feed);
 
   const stage = (
     <div className={cn(
@@ -82,7 +113,9 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
         </div>
       )}
 
-      {isPatient && <CaptionsSheet feed={feed} showEnglish={info.patientLang === "en"} />}
+      {isPatient && (coach.liveCoach
+        ? <PatientCoachDock feed={feed} showEnglish={info.patientLang === "en"} />
+        : <CaptionsSheet feed={feed} showEnglish={info.patientLang === "en"} />)}
     </div>
   );
 
@@ -95,6 +128,7 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
             <span lang="ml" className="font-ml">{info.exercise.nameMl}</span>
             <span className="hidden text-white/60 sm:inline"> · {info.exercise.nameEn}</span>
           </h1>
+          {coach.liveCoach && <LiveCoachBadge compact voice={coach.voice} />}
           <AutoplayUnblock />
         </header>
 
@@ -106,6 +140,9 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
           )}>
             <PainScale feed={feed} send={send} />
             <SymptomButtons send={send} />
+            {coach.liveCoach && (
+              <ConversationCard items={coach.transcript} voice={coach.voice} quiet={isQuietPhase(feed.phase)} className="hidden md:flex" />
+            )}
           </aside>
           <ConsentBanner feed={feed} send={send} />
         </div>
@@ -132,6 +169,7 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
           <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex size-2 rounded-full bg-emerald-400" /></span>
           Live
         </span>
+        {coach.liveCoach && <LiveCoachBadge compact voice={coach.voice} />}
         <AutoplayUnblock />
       </header>
 
@@ -150,7 +188,13 @@ export const GuidedCallLayout = ({ info, onLeave, onEndForAll }: Props) => {
           <PhysioLivePanel feed={feed} sessionId={info.sessionId} targetAngle={info.prescription.targetAngle}
             repsPlanned={info.prescription.reps} agentPresent={!!agent} onDismiss={dismissAlert} />
           <CaptionsPanel feed={feed} showEnglish />
-          <StopButton send={send} label={{ ml: "സെറ്റ് നിർത്തുക", en: "Stop the set" }} />
+          {(coach.liveCoach || coach.transcript.length > 0) && (
+            <TranscriptPanel items={coach.transcript} voice={coach.voice} live={coach.liveCoach} className="shrink-0" />
+          )}
+          {/* Sticky so the taller aside can never scroll Stop out of view; the button itself is unchanged. */}
+          <div className="sticky bottom-0 z-10 -mx-1 bg-neutral-950/95 px-1 pt-1 backdrop-blur">
+            <StopButton send={send} label={{ ml: "സെറ്റ് നിർത്തുക", en: "Stop the set" }} />
+          </div>
         </aside>
       </div>
 

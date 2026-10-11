@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
+import { countOf } from "@/db/count";
 import { callSessions, physioPatientLinks, prescriptions, user } from "@/db/schema";
 import { createTRPCRouter, physioProcedure } from "@/trpc/init";
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE } from "@/constants";
@@ -18,8 +19,8 @@ const patientColumns = {
   image: user.image,
   preferredLanguage: user.preferredLanguage,
   createdAt: user.createdAt,
-  sessionCount: db.$count(callSessions, eq(callSessions.patientId, user.id)),
-  activePrescriptionCount: db.$count(prescriptions, and(eq(prescriptions.patientId, user.id), eq(prescriptions.active, true))),
+  sessionCount: countOf(callSessions, eq(callSessions.patientId, user.id)),
+  activePrescriptionCount: countOf(prescriptions, and(eq(prescriptions.patientId, user.id), eq(prescriptions.active, true))),
   lastSessionAt: sql<Date | null>`(select max(coalesce(cs.started_at, cs.scheduled_at)) from call_sessions cs where cs.patient_id = ${user.id})`,
   latestPain: sql<number | null>`(select sr.pain from set_results sr join call_sessions cs on cs.id = sr.call_session_id
     where cs.patient_id = ${user.id} and sr.pain is not null order by sr.created_at desc limit 1)`,
